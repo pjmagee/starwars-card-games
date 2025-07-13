@@ -1,0 +1,53 @@
+// Pazaak game types and interfaces
+
+export interface PazaakCard {
+  value: number; // 1-10 for main deck, varies for side deck
+  isMainDeck: boolean;
+  variant?: 'default' | 'side' | 'dual' | 'flip_2_4' | 'flip_3_6' | 'double' | 'tiebreaker' | 'variable' | 'special';
+  id: string; // Unique identifier
+}
+
+export interface SideCard {
+  value: number; // Can be positive, negative, or dual
+  variant: 'positive' | 'negative' | 'dual' | 'flip_2_4' | 'flip_3_6' | 'double' | 'tiebreaker' | 'variable';
+  isUsed: boolean;
+  id: string;
+  description?: string; // For special cards
+  // For variable cards that can be different values
+  alternateValue?: number; // For ±1/2 cards
+  // For flip cards
+  flipTargets?: number[]; // [2, 4] or [3, 6]
+}
+
+export interface Player {
+  id: string;
+  name: string;
+  hand: PazaakCard[]; // Cards played this round (main deck + side cards used)
+  sideCards: SideCard[]; // Full collection of available side cards
+  selectedSideCards: SideCard[]; // 10 cards selected from collection for this game
+  dealtSideCards: SideCard[]; // 4 cards dealt from selected side deck for this set
+  score: number;
+  sets: number; // Pazaak is best of 3 sets
+  isStanding: boolean;
+  isDealer?: boolean;
+  tiebreaker?: boolean; // For tiebreaker card effects
+}
+
+export interface GameState {
+  players: Player[];
+  currentPlayerIndex: number;
+  mainDeck: PazaakCard[]; // Shared 40-card deck (+1 to +10, four of each)
+  gamePhase: 'setup' | 'sideDeckSelection' | 'playing' | 'roundEnd' | 'gameEnd';
+  winner?: Player;
+  round: number;
+  cardsDealtThisRound: number;
+}
+
+export type GameAction = 
+  | { type: 'SELECT_SIDE_CARDS'; playerId: string; cardIds: string[] }
+  | { type: 'DEAL_CARD'; playerId: string }
+  | { type: 'USE_SIDE_CARD'; playerId: string; cardId: string; modifier?: 'positive' | 'negative' }
+  | { type: 'STAND'; playerId: string }
+  | { type: 'END_TURN'; playerId: string }
+  | { type: 'NEW_ROUND' }
+  | { type: 'NEW_GAME' };
