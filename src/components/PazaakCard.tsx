@@ -195,7 +195,7 @@ const useStyles = makeStyles({
   },
 });
 
-const PazaakCardComponent: React.FC<PazaakCardProps> = ({ 
+const PazaakCardComponent = React.forwardRef<HTMLDivElement, PazaakCardProps>(({ 
   value, 
   isMainDeck, 
   isUsed = false,
@@ -205,7 +205,7 @@ const PazaakCardComponent: React.FC<PazaakCardProps> = ({
   alternateValue,
   flipTargets, // For future flip card implementations
   size = 'normal'
-}) => {
+}, ref) => {
   const styles = useStyles();
 
   const getDisplayValue = () => {
@@ -331,6 +331,7 @@ const PazaakCardComponent: React.FC<PazaakCardProps> = ({
 
   return (
     <div 
+      ref={ref}
       className={getCardStyles()}
       onClick={handleClick}
     >
@@ -371,6 +372,6 @@ const PazaakCardComponent: React.FC<PazaakCardProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default PazaakCardComponent;

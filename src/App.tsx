@@ -23,7 +23,6 @@ import {
   People24Regular,
   Settings24Regular,
   Bot24Regular,
-  Person24Regular,
   Group24Regular,
   Navigation24Regular,
 } from '@fluentui/react-icons';
@@ -32,7 +31,7 @@ import AppNavigation from './components/AppNavigation';
 import { NotificationProvider } from './components/NotificationSystem';
 import { useNotifications } from './hooks/useNotifications';
 
-type GameMode = 'menu' | 'pazaak' | 'sabacc-spike' | 'sabacc-kessel';
+type GameMode = 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'sabacc-spike' | 'sabacc-kessel';
 type SessionMode = 'offline' | 'host' | 'join';
 type ViewMode = 'normal' | 'sidebar'; // New: toggle between normal and sidebar nav
 
@@ -151,7 +150,7 @@ function App() {
   };
 
   const AppContent = () => {
-    const { showToast, showMessageBar } = useNotifications();
+    const { showToast } = useNotifications();
 
     const renderGameMenu = () => (
       <div className={styles.menuGrid}>
@@ -184,30 +183,14 @@ function App() {
                     Play vs AI
                   </Button>
                   <Button
-                    icon={<Person24Regular />}
-                    disabled
-                    onClick={() => {
-                      showToast({
-                        type: 'info',
-                        title: 'Coming Soon',
-                        message: 'Practice mode will be available in a future update'
-                      });
-                    }}
-                  >
-                    Practice Mode
-                  </Button>
-                  <Button
+                    appearance="secondary"
                     icon={<Group24Regular />}
-                    disabled
                     onClick={() => {
-                      showMessageBar({
-                        type: 'warning',
-                        title: 'Multiplayer Coming Soon',
-                        message: 'We\'re working on bringing you multiplayer Pazaak with PeerJS integration!',
-                        action: {
-                          label: 'Learn More',
-                          onClick: () => console.log('Learn more about multiplayer')
-                        }
+                      handleGameSelect('pazaak-multiplayer');
+                      showToast({
+                        type: 'success',
+                        title: 'Multiplayer Starting',
+                        message: 'Loading Pazaak Multiplayer...'
                       });
                     }}
                   >
@@ -289,6 +272,8 @@ function App() {
       switch (currentGame) {
         case 'pazaak':
           return <PazaakGameLayout />;
+        case 'pazaak-multiplayer':
+          return <PazaakGameLayout initialMode="multiplayer" />;
         case 'sabacc-spike':
         case 'sabacc-kessel':
           return (

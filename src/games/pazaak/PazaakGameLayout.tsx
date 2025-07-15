@@ -12,10 +12,13 @@ import {
 import {
   Bot24Regular,
   Person24Regular,
+  Group24Regular,
 } from '@fluentui/react-icons';
 import { PazaakGame } from './gameLogic';
 import PazaakCardComponent from '../../components/PazaakCard';
 import SideDeckSelection from './SideDeckSelection';
+import DualCardSelection from '../../components/DualCardSelection';
+import RoundHistory from '../../components/RoundHistory';
 import type { GameState } from './types';
 
 const useStyles = makeStyles({
@@ -59,11 +62,25 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: tokens.spacingVerticalL,
+    gap: tokens.spacingVerticalM,
     backgroundColor: tokens.colorNeutralBackground3,
     border: `2px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusLarge,
     padding: tokens.spacingVerticalL,
+  },
+  primaryActions: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: tokens.spacingHorizontalS,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  secondaryActions: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: tokens.spacingHorizontalS,
+    justifyContent: 'center',
+    width: '100%',
   },
   opponentArea: {
     gridColumn: '3',
@@ -105,16 +122,19 @@ const useStyles = makeStyles({
     width: '100%',
   },
   cardSequence: {
-    display: 'flex',
-    gap: tokens.spacingHorizontalS,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    minHeight: '120px',
-    alignItems: 'flex-start',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gridTemplateRows: 'repeat(3, 1fr)',
+    gap: tokens.spacingHorizontalXS,
+    width: '100%',
+    maxWidth: '240px',
+    minHeight: '320px',
     padding: tokens.spacingVerticalM,
     backgroundColor: tokens.colorSubtleBackground,
     borderRadius: tokens.borderRadiusMedium,
     border: `1px solid ${tokens.colorNeutralStroke2}`,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   playerHand: {
     display: 'flex',
@@ -215,8 +235,9 @@ const useStyles = makeStyles({
     justifyContent: 'center',
   },
   usedOpponentCard: {
-    opacity: 0.3,
-    backgroundColor: tokens.colorNeutralBackground4,
+    opacity: 0.9,
+    backgroundColor: tokens.colorPaletteGreenBackground2,
+    border: `2px solid ${tokens.colorPaletteGreenBorder2}`,
   },
   deckCard: {
     width: '100px',
@@ -287,10 +308,27 @@ const useStyles = makeStyles({
     textAlign: 'center',
     display: 'flex',
     flexDirection: 'column',
-    gap: tokens.spacingVerticalS,
+    gap: tokens.spacingVerticalXS,
+    padding: tokens.spacingVerticalM,
+    backgroundColor: tokens.colorNeutralBackground2,
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    width: '100%',
+    maxWidth: '280px',
+  },
+  compactHistory: {
+    marginTop: tokens.spacingVerticalM,
+    width: '100%',
+    maxWidth: '280px',
   },
   aiThinking: {
     color: tokens.colorBrandForeground1,
+    backgroundColor: tokens.colorNeutralBackground2,
+    padding: tokens.spacingVerticalS,
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorBrandStroke1}`,
+    textAlign: 'center',
+    animation: 'pulse 1.5s ease-in-out infinite',
   },
   noCardsText: {
     color: tokens.colorNeutralForeground3,
@@ -342,13 +380,45 @@ const useStyles = makeStyles({
     justifyContent: 'center',
     marginTop: tokens.spacingVerticalS,
   },
+  gridSlot: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100px',
+    border: `1px dashed ${tokens.colorNeutralStroke3}`,
+    borderRadius: tokens.borderRadiusMedium,
+  },
+  slotNumber: {
+    color: tokens.colorNeutralForeground3,
+  },
+  aiAction: {
+    color: tokens.colorPaletteBlueForeground2,
+    backgroundColor: tokens.colorPaletteBlueBackground2,
+    padding: tokens.spacingVerticalXS,
+    borderRadius: tokens.borderRadiusSmall,
+    textAlign: 'center',
+    maxWidth: '250px',
+    width: '100%',
+  },
+  // AI action history styles removed - actions now logged to console
+  usedCardInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
 });
 
-const PazaakGameLayout: React.FC = () => {
+interface PazaakGameLayoutProps {
+  initialMode?: 'singleplayer' | 'multiplayer';
+}
+
+const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'singleplayer' }) => {
   const styles = useStyles();
   const [game, setGame] = useState<PazaakGame | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [gameMode, setGameMode] = useState<'menu' | 'vsAI'>('menu');
+  const [gameMode, setGameMode] = useState<'menu' | 'vsAI' | 'multiplayer'>(
+    initialMode === 'multiplayer' ? 'multiplayer' : 'menu'
+  );
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
 
   // Auto-process AI turns when it's the AI's turn
@@ -359,7 +429,7 @@ const PazaakGameLayout: React.FC = () => {
       const timeoutId = setTimeout(() => {
         const aiState = game.processAITurn();
         setGameState(aiState);
-      }, 1500); // Give player time to see the board state
+      }, 2000); // Increased to 2 seconds for better UX
       
       return () => clearTimeout(timeoutId);
     }
@@ -383,6 +453,11 @@ const PazaakGameLayout: React.FC = () => {
     setGameMode('vsAI');
   }, [difficulty]);
 
+  const handleStartMultiplayer = useCallback(() => {
+    // Set mode to multiplayer to trigger the proper screen
+    setGameMode('multiplayer');
+  }, []);
+
   const handleSideCardsSelected = useCallback((selectedCardIds: string[]) => {
     if (game && gameState) {
       const humanPlayer = gameState.players.find(p => p.id !== 'ai-player') || gameState.players[0];
@@ -402,12 +477,54 @@ const PazaakGameLayout: React.FC = () => {
   }, [game, gameState]);
 
   const handleUseSideCard = useCallback((cardId: string) => {
+    console.log('🎴 handleUseSideCard called with:', cardId);
+    
+    if (game && gameState) {
+      const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+      console.log('🎴 Current player:', currentPlayer.name, 'id:', currentPlayer.id);
+      
+      if (currentPlayer.id !== 'ai-player') {
+        const sideCard = currentPlayer.dealtSideCards.find(c => c.id === cardId);
+        console.log('🎴 Side card found:', sideCard);
+        console.log('🎴 Side card variant:', sideCard?.variant);
+        
+        if (sideCard && (sideCard.variant === 'dual' || sideCard.variant === 'tiebreaker' || sideCard.variant === 'variable')) {
+          // Dialog will be handled by the DualCardSelection component wrapper
+          console.log('🎴 Dual card click - dialog will be handled by DualCardSelection component');
+        } else {
+          // For non-dual cards, use with default positive modifier
+          console.log('🎴 Using side card directly:', sideCard);
+          const newState = game.useSideCard(currentPlayer.id, cardId, 'positive');
+          setGameState(newState);
+        }
+      } else {
+        console.log('🎴 Not human player turn, ignoring click');
+      }
+    } else {
+      console.log('🎴 Game or gameState not available');
+    }
+  }, [game, gameState]);
+
+  const handleDualCardSelection = useCallback((cardId: string, modifier: 'positive' | 'negative', alternateValue?: number) => {
+    console.log('🎴 handleDualCardSelection called with:', { cardId, modifier, alternateValue });
     if (game && gameState) {
       const currentPlayer = gameState.players[gameState.currentPlayerIndex];
       if (currentPlayer.id !== 'ai-player') {
-        // For now, using default positive modifier. In real game, player would choose
-        const newState = game.useSideCard(currentPlayer.id, cardId, 'positive');
-        setGameState(newState);
+        const sideCard = currentPlayer.dealtSideCards.find(c => c.id === cardId);
+        if (sideCard) {
+          // For variable cards, we need to temporarily set the value
+          if (sideCard.variant === 'variable' && alternateValue !== undefined) {
+            const modifiedCard = { ...sideCard, value: alternateValue };
+            // We need to update the card in the player's hand temporarily
+            const cardIndex = currentPlayer.dealtSideCards.findIndex(c => c.id === cardId);
+            if (cardIndex !== -1) {
+              currentPlayer.dealtSideCards[cardIndex] = modifiedCard;
+            }
+          }
+          
+          const newState = game.useSideCard(currentPlayer.id, cardId, modifier);
+          setGameState(newState);
+        }
       }
     }
   }, [game, gameState]);
@@ -419,6 +536,13 @@ const PazaakGameLayout: React.FC = () => {
         const newState = game.stand(currentPlayer.id);
         setGameState(newState);
       }
+    }
+  }, [game, gameState]);
+
+  const handleNextRound = useCallback(() => {
+    if (game && gameState) {
+      const newState = game.startNextRound();
+      setGameState(newState);
     }
   }, [game, gameState]);
 
@@ -472,8 +596,44 @@ const PazaakGameLayout: React.FC = () => {
                   appearance="primary"
                   size="large"
                   onClick={handleStartVsAI}
+                  icon={<Bot24Regular />}
                 >
                   Play vs Computer
+                </Button>
+                <Button
+                  appearance="secondary"
+                  size="large"
+                  onClick={handleStartMultiplayer}
+                  icon={<Group24Regular />}
+                >
+                  Multiplayer
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle multiplayer mode
+  if (gameMode === 'multiplayer') {
+    return (
+      <div className={styles.gameContainer}>
+        <div className={styles.menuContainer}>
+          <Card>
+            <CardHeader header={<Title3>Multiplayer Pazaak</Title3>} />
+            <div className={styles.menuCardContent}>
+              <Text className={styles.menuDescription}>
+                Multiplayer mode is under development. Please use the main menu to access full multiplayer features.
+              </Text>
+              <div className={styles.menuActions}>
+                <Button
+                  appearance="primary"
+                  size="large"
+                  onClick={() => setGameMode('menu')}
+                >
+                  Back to Menu
                 </Button>
               </div>
             </div>
@@ -489,8 +649,43 @@ const PazaakGameLayout: React.FC = () => {
   const humanPlayer = gameState.players.find(p => p.id !== 'ai-player') || gameState.players[0];
   const aiPlayer = gameState.players.find(p => p.id === 'ai-player');
 
-  // If we're in side deck selection phase, show the selection component
-  if (gameState.gamePhase === 'sideDeckSelection') {
+  // Button logic based on game rules
+  const canDrawCard = gameState.gamePhase === 'playing' && 
+                     currentPlayer.id === humanPlayer.id && 
+                     !humanPlayer.isStanding && 
+                     humanPlayer.score < 20 && // Can't draw if already at 20
+                     humanPlayer.hand.length < 9; // Can't draw if grid is full
+  
+  const canStand = gameState.gamePhase === 'playing' && 
+                  currentPlayer.id === humanPlayer.id && 
+                  !humanPlayer.isStanding && 
+                  humanPlayer.hand.length > 0; // Can only stand after drawing at least one card
+  
+  const canUseSideCard = gameState.gamePhase === 'playing' && 
+                        currentPlayer.id === humanPlayer.id && 
+                        !humanPlayer.isStanding && 
+                        humanPlayer.dealtSideCards.some(card => !card.isUsed) &&
+                        humanPlayer.hand.length < 9; // Can't use side card if grid is full
+
+  // Show side deck selection if:
+  // 1. Game is in sideDeckSelection phase AND
+  // 2. Human player hasn't selected their side cards yet (length !== 10) AND
+  // 3. Human player doesn't have dealt side cards (not ready for main game)
+  const shouldShowSideDeckSelection = (
+    gameState.gamePhase === 'sideDeckSelection' &&
+    humanPlayer.selectedSideCards.length !== 10 &&
+    humanPlayer.dealtSideCards.length === 0
+  );
+
+  // Debug logging for multiplayer troubleshooting
+  console.log('🎮 PazaakGameLayout state check:', {
+    gamePhase: gameState.gamePhase,
+    humanPlayerSelectedCards: humanPlayer.selectedSideCards.length,
+    humanPlayerDealtCards: humanPlayer.dealtSideCards.length,
+    shouldShowSideDeckSelection
+  });
+
+  if (shouldShowSideDeckSelection) {
     return (
       <div className={styles.gameContainer}>
         <div className={styles.selectionContainer}>
@@ -541,20 +736,27 @@ const PazaakGameLayout: React.FC = () => {
             </div>
           </div>
           
-          {/* Player's Card Sequence */}
+          {/* Player's Card Sequence - 3x3 Grid */}
           <div className={styles.cardSequence}>
-            {humanPlayer.hand.length === 0 ? (
-              <Text size={300} className={styles.noCardsText}>No cards played yet</Text>
-            ) : (
-              humanPlayer.hand.map((card, index) => (
-                <PazaakCardComponent
-                  key={index}
-                  value={card.value}
-                  isMainDeck={card.isMainDeck}
-                  variant={mapCardVariantForDisplay(card)}
-                />
-              ))
-            )}
+            {Array.from({ length: 9 }, (_, index) => {
+              const card = humanPlayer.hand[index];
+              return (
+                <div key={index} className={styles.gridSlot}>
+                  {card ? (
+                    <PazaakCardComponent
+                      value={card.value}
+                      isMainDeck={card.isMainDeck}
+                      variant={mapCardVariantForDisplay(card)}
+                      size="small"
+                    />
+                  ) : (
+                    <Text size={200} className={styles.slotNumber}>
+                      {index + 1}
+                    </Text>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Player's Hand (Side Cards) */}
@@ -563,18 +765,40 @@ const PazaakGameLayout: React.FC = () => {
               Your Hand
             </Text>
             <div className={styles.playerHand}>
-              {humanPlayer.dealtSideCards && humanPlayer.dealtSideCards.length > 0 ? (
-                humanPlayer.dealtSideCards.map((card, index) => (
-                  <PazaakCardComponent
-                    key={index}
-                    value={card.value}
-                    isMainDeck={false}
-                    variant={card.variant}
-                    onClick={() => handleUseSideCard(card.id)}
-                    disabled={currentPlayer.id !== humanPlayer.id || gameState.gamePhase !== 'playing' || card.isUsed}
-                    isUsed={card.isUsed}
-                  />
-                ))
+              {humanPlayer.dealtSideCards && humanPlayer.dealtSideCards.length > 0 ? (                  humanPlayer.dealtSideCards.map((card, index) => {
+                    // For dual cards, wrap with dialog and remove onClick
+                    if (card.variant === 'dual' || card.variant === 'tiebreaker' || card.variant === 'variable') {
+                      return (
+                        <DualCardSelection
+                          key={index}
+                          card={card}
+                          onSelect={handleDualCardSelection}
+                        >
+                          <PazaakCardComponent
+                            value={card.value}
+                            isMainDeck={false}
+                            variant={card.variant}
+                            disabled={!canUseSideCard || card.isUsed}
+                            isUsed={card.isUsed}
+                            // No onClick for dual cards - handled by DialogTrigger
+                          />
+                        </DualCardSelection>
+                      );
+                    }
+
+                    // For regular cards, use normal onClick
+                    return (
+                      <PazaakCardComponent
+                        key={index}
+                        value={card.value}
+                        isMainDeck={false}
+                        variant={card.variant}
+                        onClick={() => handleUseSideCard(card.id)}
+                        disabled={!canUseSideCard || card.isUsed}
+                        isUsed={card.isUsed}
+                      />
+                    );
+                  })
               ) : (
                 Array.from({ length: 4 }, (_, index) => (
                   <div key={index} className={styles.hiddenCard}>
@@ -588,13 +812,13 @@ const PazaakGameLayout: React.FC = () => {
 
         {/* Center Area - Game Controls */}
         <div className={styles.centerArea}>
-          {/* Game Controls */}
-          <div className={styles.centerActions}>
+          {/* Primary Game Controls */}
+          <div className={styles.primaryActions}>
             <Button
               appearance="primary"
               size="large"
               onClick={handleDrawCard}
-              disabled={currentPlayer.id !== humanPlayer.id || gameState.gamePhase !== 'playing'}
+              disabled={!canDrawCard}
             >
               Draw Card
             </Button>
@@ -602,16 +826,9 @@ const PazaakGameLayout: React.FC = () => {
               appearance="secondary"
               size="large"
               onClick={handleStand}
-              disabled={currentPlayer.id !== humanPlayer.id || gameState.gamePhase !== 'playing'}
+              disabled={!canStand}
             >
               Stand
-            </Button>
-            <Button
-              appearance="outline"
-              size="large"
-              onClick={() => window.location.reload()}
-            >
-              Forfeit Game
             </Button>
           </div>
           
@@ -631,13 +848,60 @@ const PazaakGameLayout: React.FC = () => {
                 }
               </Text>
             </div>
-            {currentPlayer.id === 'ai-player' && gameState.gamePhase === 'playing' && (
+            
+            {/* Status Messages */}
+            {humanPlayer.score > 20 && (
               <div>
-                <Text size={200} className={styles.aiThinking}>
-                  AI is thinking...
+                <Text size={300} color="red">
+                  {humanPlayer.name} BUSTED! ({humanPlayer.score})
                 </Text>
               </div>
             )}
+            {aiPlayer && aiPlayer.score > 20 && (
+              <div>
+                <Text size={300} color="red">
+                  {aiPlayer.name} BUSTED! ({aiPlayer.score})
+                </Text>
+              </div>
+            )}
+            
+            {/* AI Feedback Section */}
+            {currentPlayer.id === 'ai-player' && gameState.gamePhase === 'playing' && (
+              <div className={styles.aiThinking}>
+                <Text size={300} weight="semibold">
+                  🤖 AI is thinking...
+                </Text>
+              </div>
+            )}
+            {gameState.aiLastAction && (
+              <div className={styles.aiAction}>
+                <Text size={300} weight="semibold">
+                  {gameState.aiLastAction}
+                </Text>
+              </div>
+            )}
+            
+            {/* Compact Round History */}
+            {gameState.roundResults.length > 0 && (
+              <div className={styles.compactHistory}>
+                <RoundHistory 
+                  players={gameState.players} 
+                  roundResults={gameState.roundResults}
+                  isCompact={true}
+                />
+              </div>
+            )}
+          </div>
+          
+          {/* Secondary Actions */}
+          <div className={styles.secondaryActions}>
+            <Button
+              appearance="outline"
+              size="medium"
+              onClick={() => window.location.reload()}
+            >
+              Forfeit
+            </Button>
           </div>
         </div>
 
@@ -674,26 +938,33 @@ const PazaakGameLayout: React.FC = () => {
               </div>
             </div>
             
-            {/* Opponent's Card Sequence */}
+            {/* Opponent's Card Sequence - 3x3 Grid */}
             <div className={styles.cardSequence}>
-              {aiPlayer.hand.length === 0 ? (
-                <Text size={300} className={styles.noCardsText}>No cards played yet</Text>
-              ) : (
-                aiPlayer.hand.map((card, index) => (
-                  <PazaakCardComponent
-                    key={index}
-                    value={card.value}
-                    isMainDeck={card.isMainDeck}
-                    variant={mapCardVariantForDisplay(card)}
-                  />
-                ))
-              )}
+              {Array.from({ length: 9 }, (_, index) => {
+                const card = aiPlayer.hand[index];
+                return (
+                  <div key={index} className={styles.gridSlot}>
+                    {card ? (
+                      <PazaakCardComponent
+                        value={card.value}
+                        isMainDeck={card.isMainDeck}
+                        variant={mapCardVariantForDisplay(card)}
+                        size="small"
+                      />
+                    ) : (
+                      <Text size={200} className={styles.slotNumber}>
+                        {index + 1}
+                      </Text>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Opponent's Side Cards (Hidden/Used) */}
             <div>
               <Text size={300} weight="semibold" style={{ textAlign: 'center', marginBottom: tokens.spacingVerticalS }}>
-                Computer's Hand
+                Computer's Hand ({aiPlayer.dealtSideCards.filter(c => !c.isUsed).length}/4 left)
               </Text>
               <div className={styles.opponentSideCards}>
                 {aiPlayer.dealtSideCards && aiPlayer.dealtSideCards.length > 0 ? (
@@ -701,8 +972,25 @@ const PazaakGameLayout: React.FC = () => {
                     <div 
                       key={index} 
                       className={`${styles.opponentSideCard} ${card.isUsed ? styles.usedOpponentCard : ''}`}
+                      title={card.isUsed ? `Used: ${card.description || card.variant}` : 'Unused side card'}
                     >
-                      <Text size={200}>{card.isUsed ? '✓' : '?'}</Text>
+                      {card.isUsed ? (
+                        <div className={styles.usedCardInfo}>
+                          <Text size={100}>✓</Text>
+                          <Text size={100}>
+                            {card.variant === 'positive' ? `+${card.value}` : 
+                             card.variant === 'negative' ? `-${card.value}` :
+                             card.variant === 'dual' ? `±${card.value}` :
+                             card.variant === 'flip_2_4' ? '2&4' :
+                             card.variant === 'flip_3_6' ? '3&6' :
+                             card.variant === 'double' ? 'D' :
+                             card.variant === 'tiebreaker' ? 'T' :
+                             card.variant === 'variable' ? 'V' : '?'}
+                          </Text>
+                        </div>
+                      ) : (
+                        <Text size={200}>?</Text>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -717,6 +1005,50 @@ const PazaakGameLayout: React.FC = () => {
           </div>
         )}
 
+        {/* AI Action History - Removed from UI, now logged to console */}
+        
+        {/* Round End Overlay */}
+        {gameState.gamePhase === 'roundEnd' && (
+          <div className={styles.gameOverOverlay}>
+            <Card className={styles.gameOverCard}>
+              <Title3>
+                {(() => {
+                  const lastResult = gameState.roundResults[gameState.roundResults.length - 1];
+                  if (lastResult?.isVoid) {
+                    return `🔄 Round ${gameState.round} - Void! 🔄`;
+                  }
+                  return `🎯 Round ${gameState.round} Complete! 🎯`;
+                })()}
+              </Title3>
+              {gameState.roundResults.length > 0 && (
+                <Text size={400} className={styles.winnerText}>
+                  {(() => {
+                    const lastResult = gameState.roundResults[gameState.roundResults.length - 1];
+                    if (lastResult.isVoid) return 'Round was void - tied without tiebreaker! Round will be restarted.';
+                    if (lastResult.isDraw) return 'Round was a draw!';
+                    if (lastResult.winnerId) {
+                      const winner = gameState.players.find(p => p.id === lastResult.winnerId);
+                      return `${winner?.name} wins the round!`;
+                    }
+                    return 'Round complete!';
+                  })()}
+                </Text>
+              )}
+              <Button
+                appearance="primary"
+                size="large"
+                onClick={handleNextRound}
+                className={styles.playAgainButton}
+              >
+                {(() => {
+                  const lastResult = gameState.roundResults[gameState.roundResults.length - 1];
+                  return lastResult?.isVoid ? 'Restart Round' : 'Next Round';
+                })()}
+              </Button>
+            </Card>
+          </div>
+        )}
+
         {/* Game End Overlay */}
         {gameState.gamePhase === 'gameEnd' && gameState.winner && (
           <div className={styles.gameOverOverlay}>
@@ -724,6 +1056,9 @@ const PazaakGameLayout: React.FC = () => {
               <Title3>🎉 Game Over! 🎉</Title3>
               <Text size={500} weight="bold" className={styles.winnerText}>
                 {gameState.winner.name} Wins!
+              </Text>
+              <Text size={300}>
+                First to win 3 rounds wins the game!
               </Text>
               <Button
                 appearance="primary"

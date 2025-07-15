@@ -346,7 +346,7 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
             onClick={handleConfirmSelection}
             disabled={selectedCards.length !== 10}
           >
-            {selectedCards.length === 10 ? "Start Game" : `Confirm Selection (${selectedCards.length}/10)`}
+            {selectedCards.length === 10 ? "Confirm Selection" : `Confirm Selection (${selectedCards.length}/10)`}
           </Button>
         </div>
       </div>

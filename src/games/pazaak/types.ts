@@ -33,14 +33,25 @@ export interface Player {
   tiebreaker?: boolean; // For tiebreaker card effects
 }
 
+export interface RoundResult {
+  roundNumber: number;
+  winnerId?: string; // undefined if tie/void
+  isDraw: boolean;
+  playerScores: { [playerId: string]: number };
+  isVoid: boolean; // true if all players busted
+}
+
 export interface GameState {
   players: Player[];
   currentPlayerIndex: number;
   mainDeck: PazaakCard[]; // Shared 40-card deck (+1 to +10, four of each)
-  gamePhase: 'setup' | 'sideDeckSelection' | 'playing' | 'roundEnd' | 'gameEnd';
+  gamePhase: 'setup' | 'sideDeckSelection' | 'waitingToStart' | 'playing' | 'roundEnd' | 'gameEnd';
   winner?: Player;
   round: number;
   cardsDealtThisRound: number;
+  roundResults: RoundResult[]; // Track history of round results
+  aiLastAction?: string; // Track AI's last action for display
+  aiActionHistory?: string[]; // Track AI's recent actions for display
 }
 
 export type GameAction = 
@@ -48,6 +59,7 @@ export type GameAction =
   | { type: 'DEAL_CARD'; playerId: string }
   | { type: 'USE_SIDE_CARD'; playerId: string; cardId: string; modifier?: 'positive' | 'negative' }
   | { type: 'STAND'; playerId: string }
+  | { type: 'FORFEIT'; playerId: string }
   | { type: 'END_TURN'; playerId: string }
   | { type: 'NEW_ROUND' }
   | { type: 'NEW_GAME' };

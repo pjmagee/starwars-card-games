@@ -1,6 +1,6 @@
 // Pazaak game logic and rules
 
-import type { PazaakCard, SideCard, Player, GameState } from './types';
+import type { PazaakCard, SideCard, Player, GameState, RoundResult } from './types';
 import { PazaakAI } from './aiLogic';
 
 export class PazaakGame {
@@ -55,7 +55,8 @@ export class PazaakGame {
       mainDeck: this.createMainDeck(),
       gamePhase: 'sideDeckSelection',
       round: 1,
-      cardsDealtThisRound: 0
+      cardsDealtThisRound: 0,
+      roundResults: []
     };
   }
 
@@ -228,6 +229,16 @@ export class PazaakGame {
         player.hand = [];
       });
       this.state.gamePhase = 'playing';
+      
+      // Per Pazaak rules, each round starts with each player drawing a card
+      this.state.players.forEach(player => {
+        if (this.state.mainDeck.length > 0) {
+          const card = this.state.mainDeck.pop()!;
+          player.hand.push(card);
+          player.score = this.calculateScore(player);
+          this.state.cardsDealtThisRound++;
+        }
+      });
     }
 
     return { ...this.state };
@@ -249,35 +260,103 @@ export class PazaakGame {
    */
   public processAITurn(): GameState {
     const currentPlayer = this.getCurrentPlayer();
+    
     if (!currentPlayer || currentPlayer.id !== 'ai-player') {
       return this.state;
     }
 
     const decision = this.ai.makeDecision(currentPlayer, this.state);
     
-    // Debug logging for AI decisions
-    console.log(`AI Decision: ${decision.action}`, {
-      currentScore: currentPlayer.score,
-      availableSideCards: currentPlayer.dealtSideCards.filter(c => !c.isUsed).length,
-      cardId: decision.cardId,
-      modifier: decision.modifier,
-      opponentScore: this.state.players.find(p => p.id !== currentPlayer.id)?.score,
-      opponentStanding: this.state.players.find(p => p.id !== currentPlayer.id)?.isStanding
-    });
+    let actionMessage = '';
     
     switch (decision.action) {
-      case 'draw':
-        return this.dealCard(currentPlayer.id);
-      case 'stand':
+      case 'draw': {
+        actionMessage = `🎴 Drawing a card...`;
+        this.state.aiLastAction = actionMessage;
+        const newState = this.dealCard(currentPlayer.id);
+        
+        // Update with actual card drawn
+        const drawnCard = currentPlayer.hand[currentPlayer.hand.length - 1];
+        if (drawnCard) {
+          actionMessage = `🎴 Drew ${drawnCard.value} (Score: ${currentPlayer.score})`;
+          this.state.aiLastAction = actionMessage;
+        }
+        
+        this.addToAIActionHistory(actionMessage);
+        return newState;
+      }
+        
+      case 'stand': {
+        actionMessage = `✋ Standing at ${currentPlayer.score}`;
+        this.state.aiLastAction = actionMessage;
+        this.addToAIActionHistory(actionMessage);
         return this.stand(currentPlayer.id);
-      case 'useSideCard':
+      }
+        
+      case 'useSideCard': {
         if (decision.cardId) {
+          const sideCard = currentPlayer.dealtSideCards?.find(c => c.id === decision.cardId);
+          if (sideCard) {
+            switch (sideCard.variant) {
+              case 'positive':
+                actionMessage = `🔵 Using +${sideCard.value} card`;
+                break;
+              case 'negative':
+                actionMessage = `🔴 Using -${sideCard.value} card`;
+                break;
+              case 'dual': {
+                const modifierText = decision.modifier === 'negative' ? '-' : '+';
+                actionMessage = `🟡 Using ±${sideCard.value} card as ${modifierText}${sideCard.value}`;
+                break;
+              }
+              case 'flip_2_4':
+                actionMessage = `🔄 Using 2&4 Flip card - reversing all 2s and 4s!`;
+                break;
+              case 'flip_3_6':
+                actionMessage = `🔄 Using 3&6 Flip card - reversing all 3s and 6s!`;
+                break;
+              case 'double':
+                actionMessage = `⚡ Using Double card - doubling last main card!`;
+                break;
+              case 'tiebreaker': {
+                const tiebreakerText = decision.modifier === 'negative' ? '-1' : '+1';
+                actionMessage = `🏆 Using Tiebreaker card as ${tiebreakerText}`;
+                break;
+              }
+              case 'variable': {
+                const variableText = decision.modifier === 'negative' ? '-' : '+';
+                actionMessage = `🎯 Using Variable card as ${variableText}${sideCard.value}`;
+                break;
+              }
+              default:
+                actionMessage = `🎴 Using special card`;
+            }
+            this.state.aiLastAction = actionMessage;
+            this.addToAIActionHistory(actionMessage);
+          }
           return this.useSideCard(currentPlayer.id, decision.cardId, decision.modifier);
         }
         break;
+      }
     }
 
     return this.state;
+  }
+
+  /**
+   * Add action to AI action history (keep last 3 actions) and log to console
+   */
+  private addToAIActionHistory(action: string): void {
+    if (!this.state.aiActionHistory) {
+      this.state.aiActionHistory = [];
+    }
+    this.state.aiActionHistory.unshift(action);
+    if (this.state.aiActionHistory.length > 3) {
+      this.state.aiActionHistory.pop();
+    }
+    
+    // Log AI action to console for debugging
+    console.log('🤖 AI Action:', action);
   }
 
   /**
@@ -294,7 +373,7 @@ export class PazaakGame {
 
   public dealCard(playerId: string): GameState {
     const player = this.state.players.find(p => p.id === playerId);
-    if (!player || this.state.mainDeck.length === 0 || player.isStanding) {
+    if (!player || this.state.mainDeck.length === 0 || player.isStanding || player.hand.length >= 9) {
       return this.state;
     }
 
@@ -303,13 +382,41 @@ export class PazaakGame {
     player.score = this.calculateScore(player);
     this.state.cardsDealtThisRound++;
 
+    // Update AI action display if it's AI player
+    if (playerId === 'ai-player') {
+      this.state.aiLastAction = `🎴 Drew ${card.value} → Total: ${player.score}`;
+    }
+
     // Check for automatic stand on exactly 20 (per official rules)
     if (player.score === 20) {
       player.isStanding = true;
+      console.log(`${player.name} stands at 20`);
+      if (playerId === 'ai-player') {
+        this.state.aiLastAction = `🎯 Drew ${card.value} → Perfect 20! Standing.`;
+      }
     }
     // Check for bust (over 20)
     else if (player.score > 20) {
       player.isStanding = true;
+      console.log(`${player.name} busts with ${player.score}`);
+      if (playerId === 'ai-player') {
+        this.state.aiLastAction = `💥 Drew ${card.value} → BUSTED with ${player.score}!`;
+      }
+      
+      // Immediately check if round should end when someone busts
+      const shouldEndRound = this.state.players.some(p => p.score > 20);
+      if (shouldEndRound) {
+        console.log('Player busted, ending round immediately');
+        return this.endRound();
+      }
+    }
+    // Check if board is full (9 cards) - player automatically stands
+    else if (player.hand.length >= 9) {
+      player.isStanding = true;
+      console.log(`${player.name} stands with full board (9 cards)`);
+      if (playerId === 'ai-player') {
+        this.state.aiLastAction = `📋 Board full → Standing at ${player.score}`;
+      }
     }
 
     // Always advance turn after drawing a card
@@ -320,25 +427,16 @@ export class PazaakGame {
 
   public useSideCard(playerId: string, cardId: string, modifier?: 'positive' | 'negative'): GameState {
     const player = this.state.players.find(p => p.id === playerId);
-    if (!player) return this.state;
+    if (!player || player.hand.length >= 9) return this.state;
 
     // Find the side card in the player's dealt side cards (their 4-card hand)
     const sideCard = player.dealtSideCards.find(card => card.id === cardId && !card.isUsed);
     if (!sideCard) return this.state;
 
-    console.log(`${player.name} used side card:`, {
-      cardVariant: sideCard.variant,
-      cardValue: sideCard.value,
-      modifier: modifier,
-      scoreBefore: player.score
-    });
-
     sideCard.isUsed = true;
 
     // Apply special card effects
     this.applySideCardEffect(player, sideCard, modifier);
-    
-    console.log(`${player.name} score after side card:`, player.score);
     
     // Always advance turn after using a side card, regardless of standing status
     // The game will handle round ending in nextTurn() if needed
@@ -371,7 +469,9 @@ export class PazaakGame {
       
       case 'flip_2_4':
         // Flip all 2s and 4s on the entire game board (all players' hands)
+        console.log('🔄 FLIP 2&4 activated - affecting all players');
         this.state.players.forEach(p => {
+          const oldScore = p.score;
           p.hand.forEach(card => {
             if (Math.abs(card.value) === 2) {
               card.value = card.value > 0 ? -2 : 2;
@@ -379,13 +479,27 @@ export class PazaakGame {
               card.value = card.value > 0 ? -4 : 4;
             }
           });
+          // Recalculate score for all affected players
+          p.score = this.calculateScore(p);
+          console.log(`  ${p.name}: ${oldScore} → ${p.score}`);
+          // Reset standing status if score changed - they may need to make new decisions
+          if (p.score <= 20 && p.isStanding) {
+            p.isStanding = false; // Allow them to continue playing if flip helped them
+            console.log(`  ${p.name}: Standing reset - can continue playing`);
+          }
+          // Auto-stand on exactly 20 or bust
+          if (p.score === 20 || p.score > 20) {
+            p.isStanding = true;
+          }
         });
         effectValue = 0; // No direct value addition
         break;
       
       case 'flip_3_6':
         // Flip all 3s and 6s on the entire game board (all players' hands)
+        console.log('🔄 FLIP 3&6 activated - affecting all players');
         this.state.players.forEach(p => {
+          const oldScore = p.score;
           p.hand.forEach(card => {
             if (Math.abs(card.value) === 3) {
               card.value = card.value > 0 ? -3 : 3;
@@ -393,6 +507,18 @@ export class PazaakGame {
               card.value = card.value > 0 ? -6 : 6;
             }
           });
+          // Recalculate score for all affected players
+          p.score = this.calculateScore(p);
+          console.log(`  ${p.name}: ${oldScore} → ${p.score}`);
+          // Reset standing status if score changed - they may need to make new decisions
+          if (p.score <= 20 && p.isStanding) {
+            p.isStanding = false; // Allow them to continue playing if flip helped them
+            console.log(`  ${p.name}: Standing reset - can continue playing`);
+          }
+          // Auto-stand on exactly 20 or bust
+          if (p.score === 20 || p.score > 20) {
+            p.isStanding = true;
+          }
         });
         effectValue = 0; // No direct value addition
         break;
@@ -428,8 +554,8 @@ export class PazaakGame {
       }
     }
 
-    // Create effect card only if there's a direct value to add
-    if (effectValue !== 0) {
+    // Create effect card only if there's a direct value to add and space on the board
+    if (effectValue !== 0 && player.hand.length < 9) {
       const effectCard: PazaakCard = {
         id: `effect-${sideCard.id}`,
         value: effectValue,
@@ -440,16 +566,22 @@ export class PazaakGame {
       player.hand.push(effectCard);
     }
 
-    // Recalculate score after all effects
-    player.score = this.calculateScore(player);
+    // Recalculate score after all effects (skip for flip cards since they already recalculated all players)
+    if (!['flip_2_4', 'flip_3_6'].includes(sideCard.variant)) {
+      player.score = this.calculateScore(player);
 
-    // Check for automatic stand on exactly 20 (per official rules)
-    if (player.score === 20) {
-      player.isStanding = true;
-    }
-    // Check for bust (over 20)
-    else if (player.score > 20) {
-      player.isStanding = true;
+      // Check for automatic stand on exactly 20 (per official rules)
+      if (player.score === 20) {
+        player.isStanding = true;
+      }
+      // Check for bust (over 20)
+      else if (player.score > 20) {
+        player.isStanding = true;
+      }
+      // Check if board is full (9 cards) - player automatically stands
+      else if (player.hand.length >= 9) {
+        player.isStanding = true;
+      }
     }
   }
 
@@ -465,11 +597,42 @@ export class PazaakGame {
     return { ...this.state };
   }
 
+  public forfeit(playerId: string): GameState {
+    const player = this.state.players.find(p => p.id === playerId);
+    if (player) {
+      // Mark player as forfeited and eliminate them from the game
+      player.isStanding = true;
+      player.score = 21; // Set score to 21 to ensure they lose
+      console.log(`Player ${player.name} has forfeited`);
+    }
+
+    // Check if this ends the round
+    const allStanding = this.state.players.every(p => p.isStanding || p.score > 20);
+    
+    if (allStanding) {
+      console.log('Ending round due to forfeit');
+      this.endRound();
+    } else {
+      this.nextTurn();
+    }
+
+    return { ...this.state };
+  }
+
   public nextTurn(): GameState {
     // Check if all players are standing or busted
     const allStanding = this.state.players.every(p => p.isStanding || p.score > 20);
     
+    console.log('nextTurn - player states:', this.state.players.map(p => ({
+      name: p.name,
+      score: p.score,
+      isStanding: p.isStanding,
+      busted: p.score > 20
+    })));
+    console.log('All standing or busted:', allStanding);
+    
     if (allStanding) {
+      console.log('Ending round due to all players standing or busted');
       return this.endRound();
     }
 
@@ -481,24 +644,42 @@ export class PazaakGame {
       this.state.currentPlayerIndex = (this.state.currentPlayerIndex + 1) % this.state.players.length;
       attempts++;
     } while (
-      this.state.players[this.state.currentPlayerIndex].isStanding && 
+      (this.state.players[this.state.currentPlayerIndex].isStanding || 
+       this.state.players[this.state.currentPlayerIndex].score > 20) && 
       attempts < maxAttempts
     );
 
     // Double check - if we couldn't find a non-standing player, end the round
     if (attempts >= maxAttempts) {
+      console.log('No valid next player found, ending round');
       return this.endRound();
     }
 
+    console.log(`Next player: ${this.state.players[this.state.currentPlayerIndex].name}`);
     return { ...this.state };
   }
 
   private endRound(): GameState {
+    // Create round result object
+    const roundResult: RoundResult = {
+      roundNumber: this.state.round,
+      winnerId: undefined,
+      isDraw: false,
+      isVoid: false,
+      playerScores: {}
+    };
+    
+    // Record player scores
+    this.state.players.forEach(p => {
+      roundResult.playerScores[p.id] = p.score;
+    });
+    
     // Determine round winner
     const validPlayers = this.state.players.filter(p => p.score <= 20);
     
     if (validPlayers.length === 0) {
-      // All players busted - no winner this round
+      roundResult.isVoid = true;
+      console.log('Round void - all players busted');
     } else {
       // Find player(s) closest to 20
       const maxScore = Math.max(...validPlayers.map(p => p.score));
@@ -506,16 +687,26 @@ export class PazaakGame {
       
       if (roundWinners.length === 1) {
         roundWinners[0].sets++;
+        roundResult.winnerId = roundWinners[0].id;
+        console.log(`Round ${this.state.round}: ${roundWinners[0].name} wins with score ${maxScore}`);
       } else if (roundWinners.length > 1) {
         // Handle ties - check for tiebreaker cards
         const tiebreakerWinners = roundWinners.filter(p => p.tiebreaker);
         if (tiebreakerWinners.length === 1) {
           // Only one player played a tiebreaker - they win
           tiebreakerWinners[0].sets++;
+          roundResult.winnerId = tiebreakerWinners[0].id;
+          console.log(`Round ${this.state.round}: ${tiebreakerWinners[0].name} wins with tiebreaker`);
+        } else {
+          // No tiebreaker or multiple tiebreakers - round is void and must be restarted
+          roundResult.isVoid = true;
+          console.log(`Round ${this.state.round}: Void due to tie (tied at ${maxScore}) - round will be restarted`);
         }
-        // If multiple or no tiebreakers, round is void (no winner)
       }
     }
+    
+    // Add round result to history
+    this.state.roundResults.push(roundResult);
 
     // Check for game winner (first to 3 rounds per official rules)
     const gameWinner = this.state.players.find(p => p.sets >= 3);
@@ -523,23 +714,58 @@ export class PazaakGame {
     if (gameWinner) {
       this.state.gamePhase = 'gameEnd';
       this.state.winner = gameWinner;
+      console.log(`Game over: ${gameWinner.name} wins!`);
+    } else if (roundResult.isVoid) {
+      // For void rounds (ties without tiebreaker), restart the round immediately
+      this.state.gamePhase = 'roundEnd';
+      console.log(`Round ${this.state.round} was void. Same round will be restarted.`);
     } else {
-      // Reset for next round
-      this.state.players.forEach(p => {
-        p.hand = [];
-        p.score = 0;
-        p.isStanding = false;
-        p.tiebreaker = false; // Reset tiebreaker flag
-        // DO NOT reset side card usage - they are single-use per GAME, not per round
-        // p.dealtSideCards.forEach(sc => sc.isUsed = false); // REMOVED
-      });
-      this.state.round++;
-      this.state.currentPlayerIndex = 0;
-      this.state.gamePhase = 'playing';
-      this.state.cardsDealtThisRound = 0;
-      // Reshuffle main deck
-      this.state.mainDeck = this.createMainDeck();
+      // Set phase to roundEnd to allow UI to show results
+      this.state.gamePhase = 'roundEnd';
+      console.log(`Round ${this.state.round} ended. Advancing to round ${this.state.round + 1}`);
     }
+
+    return { ...this.state };
+  }
+
+  public startNextRound(): GameState {
+    if (this.state.gamePhase !== 'roundEnd') {
+      return this.state;
+    }
+
+    // Check if the last round was void (tied without tiebreaker)
+    const lastResult = this.state.roundResults[this.state.roundResults.length - 1];
+    const isVoidRound = lastResult && lastResult.isVoid;
+
+    // Reset for next round
+    this.state.players.forEach(p => {
+      p.hand = [];
+      p.score = 0;
+      p.isStanding = false;
+      p.tiebreaker = false; // Reset tiebreaker flag
+    });
+    
+    // Only advance round number if the last round wasn't void
+    if (!isVoidRound) {
+      this.state.round++;
+    }
+    
+    this.state.currentPlayerIndex = 0;
+    this.state.gamePhase = 'playing';
+    this.state.cardsDealtThisRound = 0;
+    this.state.aiLastAction = undefined; // Clear AI action for new round
+    // Reshuffle main deck
+    this.state.mainDeck = this.createMainDeck();
+
+    // Per Pazaak rules, each round starts with each player drawing a card
+    this.state.players.forEach(player => {
+      if (this.state.mainDeck.length > 0) {
+        const card = this.state.mainDeck.pop()!;
+        player.hand.push(card);
+        player.score = this.calculateScore(player);
+        this.state.cardsDealtThisRound++;
+      }
+    });
 
     return { ...this.state };
   }
