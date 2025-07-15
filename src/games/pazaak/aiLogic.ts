@@ -72,6 +72,9 @@ export class PazaakAI {
   makeDecision(player: Player, gameState?: { players: Player[] }): { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' } {
     const currentScore = player.score;
     
+    // Get difficulty settings early
+    const { standThreshold, sideCardUsageRate, optimalPlayRate } = this.difficultySettings;
+    
     // Get opponent info if available
     const opponent = gameState?.players.find(p => p.id !== player.id);
     const opponentScore = opponent?.score || 0;
@@ -82,7 +85,10 @@ export class PazaakAI {
       aiScore: currentScore,
       opponentScore,
       opponentStanding,
-      opponentName: opponent?.name
+      opponentName: opponent?.name,
+      aiCards: player.dealtSideCards?.filter(c => !c.isUsed).length || 0,
+      opponentCards: opponent?.dealtSideCards?.filter(c => !c.isUsed).length || 0,
+      difficulty: { standThreshold, sideCardUsageRate, optimalPlayRate }
     });
     
     // If we're already at 20, stand
@@ -99,6 +105,18 @@ export class PazaakAI {
       }
       // If no side card can help, we're busted - stand (game will handle bust)
       return { action: 'stand' };
+    }
+    
+    // Strategic assessment: analyze all available options
+    const strategicAnalysis = this.analyzeGameSituation(player, opponent, gameState);
+    
+    // Apply difficulty-based confidence threshold for strategic moves
+    const confidenceThreshold = 0.5 + (optimalPlayRate * 0.3); // Easy: 0.68, Medium: 0.74, Hard: 0.785
+    
+    // If we have a high-value strategic play that meets difficulty threshold, execute it
+    if (strategicAnalysis.bestMove && strategicAnalysis.bestMove.confidence > confidenceThreshold) {
+      console.log(`🤖 Executing strategic move (confidence: ${strategicAnalysis.bestMove.confidence.toFixed(2)}, threshold: ${confidenceThreshold.toFixed(2)}): ${strategicAnalysis.bestMove.reasoning}`);
+      return strategicAnalysis.bestMove.action;
     }
     
     // If opponent is standing, we need to beat their score or get as close as possible
@@ -183,8 +201,6 @@ export class PazaakAI {
     }
     
     // Use difficulty-based thresholds for decision making
-    const { standThreshold, sideCardUsageRate, optimalPlayRate } = this.difficultySettings;
-    
     // Risk assessment based on current score and difficulty
     if (currentScore >= standThreshold) {
       // High risk zone - consider standing or using side cards strategically
@@ -416,6 +432,539 @@ export class PazaakAI {
     }
     
     return null;
+  }
+
+  /**
+   * Comprehensive strategic analysis of the current game situation
+   * Evaluates all available options and their risks/rewards
+   */
+  private analyzeGameSituation(aiPlayer: Player, opponent: Player | undefined, gameState?: { players: Player[] }): {
+    bestMove: { action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, confidence: number, reasoning: string } | null,
+    riskAssessment: { drawRisk: number, standRisk: number, sideCardRisks: { [cardId: string]: number } },
+    opportunities: string[]
+  } {
+    const currentScore = aiPlayer.score;
+    const opponentScore = opponent?.score || 0;
+    const opponentStanding = opponent?.isStanding || false;
+    const availableCards = aiPlayer.dealtSideCards?.filter(c => !c.isUsed) || [];
+    const mainDeckValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // Possible next draws
+    
+    // Apply difficulty settings to strategic analysis
+    const { standThreshold, sideCardUsageRate, optimalPlayRate } = this.difficultySettings;
+    
+    let bestMove: { action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, confidence: number, reasoning: string } | null = null;
+    const opportunities: string[] = [];
+    const riskAssessment = {
+      drawRisk: this.calculateDrawRisk(currentScore, mainDeckValues),
+      standRisk: this.calculateStandRisk(currentScore, opponentScore, opponentStanding),
+      sideCardRisks: {} as { [cardId: string]: number }
+    };
+    
+    // Analyze each available side card with difficulty-adjusted thresholds
+    for (const card of availableCards) {
+      const cardAnalysis = this.analyzeSideCard(aiPlayer, opponent, card, gameState);
+      riskAssessment.sideCardRisks[card.id] = cardAnalysis.risk;
+      
+      // Apply difficulty-based confidence adjustment
+      let adjustedConfidence = cardAnalysis.confidence;
+      
+      // On easier difficulties, reduce confidence in complex plays
+      if (optimalPlayRate < 0.8) {
+        // Reduce confidence for special card plays on easier difficulties
+        if (['flip_2_4', 'flip_3_6', 'double'].includes(card.variant)) {
+          adjustedConfidence *= optimalPlayRate;
+        }
+      }
+      
+      // Apply side card usage rate as a multiplier
+      if (currentScore >= standThreshold) {
+        adjustedConfidence *= sideCardUsageRate;
+      }
+      
+      if (cardAnalysis.shouldUse && adjustedConfidence > 0.5) {
+        opportunities.push(cardAnalysis.opportunity);
+        
+        // Update best move if this card is better
+        if (!bestMove || adjustedConfidence > bestMove.confidence) {
+          bestMove = {
+            action: cardAnalysis.action,
+            confidence: adjustedConfidence,
+            reasoning: `${cardAnalysis.reasoning} (difficulty-adjusted confidence: ${adjustedConfidence.toFixed(2)})`
+          };
+        }
+      }
+    }
+    
+    // Consider offensive flip card strategies with difficulty adjustment
+    if (opponent && gameState && optimalPlayRate > 0.7) { // Only on medium/hard
+      const flipAnalysis = this.analyzeOffensiveFlipStrategies(aiPlayer, opponent);
+      if (flipAnalysis.shouldUse) {
+        const adjustedConfidence = flipAnalysis.confidence * optimalPlayRate;
+        opportunities.push(flipAnalysis.opportunity);
+        
+        if (!bestMove || adjustedConfidence > bestMove.confidence) {
+          bestMove = {
+            action: flipAnalysis.action,
+            confidence: adjustedConfidence,
+            reasoning: `${flipAnalysis.reasoning} (difficulty-adjusted)`
+          };
+        }
+      }
+    }
+    
+    // Consider if we should force opponent to use their cards (advanced strategy)
+    if (opponent && this.shouldForceOpponentResponse(aiPlayer, opponent) && optimalPlayRate > 0.8) {
+      opportunities.push("Force opponent to use defensive cards");
+    }
+    
+    return { bestMove, riskAssessment, opportunities };
+  }
+
+  /**
+   * Calculate the risk of drawing a card from the main deck
+   */
+  private calculateDrawRisk(currentScore: number, mainDeckValues: number[]): number {
+    if (currentScore >= 20) return 1.0; // 100% risk if already at/over 20
+    
+    let bustCount = 0;
+    for (const value of mainDeckValues) {
+      if (currentScore + value > 20) {
+        bustCount++;
+      }
+    }
+    
+    return bustCount / mainDeckValues.length;
+  }
+
+  /**
+   * Calculate the risk of standing at current score
+   */
+  private calculateStandRisk(currentScore: number, opponentScore: number, opponentStanding: boolean): number {
+    if (currentScore === 20) return 0.0; // No risk at perfect score
+    if (currentScore > 20) return 1.0; // Already busted
+    
+    if (opponentStanding) {
+      // If opponent is standing, risk is based on whether we can beat them
+      if (currentScore > opponentScore) return 0.1; // Low risk if winning
+      if (currentScore === opponentScore) return 0.5; // Medium risk if tied
+      return 0.9; // High risk if losing
+    }
+    
+    // If opponent is still playing, risk depends on how close we are to 20
+    return (20 - currentScore) / 20; // Higher risk the further from 20
+  }
+
+  /**
+   * Analyze a specific side card for strategic value
+   */
+  private analyzeSideCard(aiPlayer: Player, opponent: Player | undefined, card: SideCard, gameState?: { players: Player[] }): {
+    shouldUse: boolean,
+    confidence: number,
+    reasoning: string,
+    opportunity: string,
+    action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' },
+    risk: number
+  } {
+    const currentScore = aiPlayer.score;
+    const opponentScore = opponent?.score || 0;
+    const opponentStanding = opponent?.isStanding || false;
+    
+    // Analyze different card types
+    switch (card.variant) {
+      case 'positive':
+        return this.analyzePositiveCard(card, currentScore, opponentScore, opponentStanding);
+      
+      case 'negative':
+        return this.analyzeNegativeCard(card, currentScore);
+      
+      case 'dual':
+        return this.analyzeDualCard(card, currentScore, opponentScore, opponentStanding);
+      
+      case 'flip_2_4':
+      case 'flip_3_6':
+        return this.analyzeFlipCard(aiPlayer, opponent, card, gameState);
+      
+      case 'double':
+        return this.analyzeDoubleCard(aiPlayer, card, currentScore, opponentScore, opponentStanding);
+      
+      case 'tiebreaker':
+        return this.analyzeTiebreakerCard(card, currentScore, opponentScore, opponentStanding);
+      
+      default:
+        return {
+          shouldUse: false,
+          confidence: 0,
+          reasoning: 'Unknown card type',
+          opportunity: '',
+          action: { action: 'stand' },
+          risk: 0.5
+        };
+    }
+  }
+
+  /**
+   * Analyze positive card usage
+   */
+  private analyzePositiveCard(card: SideCard, currentScore: number, opponentScore: number, opponentStanding: boolean): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    const newScore = currentScore + card.value;
+    const risk = newScore > 20 ? 1.0 : 0.0;
+    
+    // Perfect score opportunity
+    if (newScore === 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.95,
+        reasoning: `Using +${card.value} card achieves perfect score of 20`,
+        opportunity: `Perfect score with +${card.value} card`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.0
+      };
+    }
+    
+    // Good improvement without busting
+    if (newScore < 20 && newScore > currentScore) {
+      let confidence = 0.6;
+      
+      // Higher confidence if opponent is standing and we need to catch up
+      if (opponentStanding && newScore > opponentScore && opponentScore <= 20) {
+        confidence = 0.8;
+      }
+      
+      // Higher confidence if we're far from 20 and this gets us closer
+      if (currentScore <= 15 && newScore <= 18) {
+        confidence = 0.7;
+      }
+      
+      return {
+        shouldUse: true,
+        confidence,
+        reasoning: `Using +${card.value} improves score to ${newScore} without risk`,
+        opportunity: `Safe improvement to ${newScore}`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.0
+      };
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: `+${card.value} card would cause bust (${newScore})`,
+      opportunity: '',
+      action: { action: 'stand' },
+      risk
+    };
+  }
+
+  /**
+   * Analyze negative card usage
+   */
+  private analyzeNegativeCard(card: SideCard, currentScore: number): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    const newScore = currentScore - Math.abs(card.value);
+    
+    // If we're over 20, negative cards can save us
+    if (currentScore > 20 && newScore <= 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.9,
+        reasoning: `Using ${card.value} card saves from bust (${currentScore} → ${newScore})`,
+        opportunity: `Bust recovery with ${card.value} card`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.0
+      };
+    }
+    
+    // Generally negative cards are defensive and less valuable when not busted
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: `${card.value} card not beneficial at current score`,
+      opportunity: '',
+      action: { action: 'stand' },
+      risk: 0.3
+    };
+  }
+
+  /**
+   * Analyze dual card usage (can be positive or negative)
+   */
+  private analyzeDualCard(card: SideCard, currentScore: number, opponentScore: number, opponentStanding: boolean): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    const positiveScore = currentScore + card.value;
+    const negativeScore = currentScore - card.value;
+    
+    // Perfect score with positive
+    if (positiveScore === 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.95,
+        reasoning: `Using dual ±${card.value} card positively achieves perfect score of 20`,
+        opportunity: `Perfect score with dual ±${card.value} card`,
+        action: { action: 'useSideCard', cardId: card.id, modifier: 'positive' },
+        risk: 0.0
+      };
+    }
+    
+    // Save from bust with negative
+    if (currentScore > 20 && negativeScore <= 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.9,
+        reasoning: `Using dual ±${card.value} card negatively saves from bust (${currentScore} → ${negativeScore})`,
+        opportunity: `Bust recovery with dual ±${card.value} card`,
+        action: { action: 'useSideCard', cardId: card.id, modifier: 'negative' },
+        risk: 0.0
+      };
+    }
+    
+    // Good positive improvement
+    if (positiveScore < 20 && positiveScore > currentScore) {
+      let confidence = 0.7;
+      
+      if (opponentStanding && positiveScore > opponentScore && opponentScore <= 20) {
+        confidence = 0.8;
+      }
+      
+      return {
+        shouldUse: true,
+        confidence,
+        reasoning: `Using dual ±${card.value} card positively improves score to ${positiveScore}`,
+        opportunity: `Safe improvement to ${positiveScore}`,
+        action: { action: 'useSideCard', cardId: card.id, modifier: 'positive' },
+        risk: 0.0
+      };
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: `Dual ±${card.value} card not beneficial at current score`,
+      opportunity: '',
+      action: { action: 'stand' },
+      risk: 0.2
+    };
+  }
+
+  /**
+   * Analyze flip card usage with enhanced strategic considerations
+   */
+  private analyzeFlipCard(aiPlayer: Player, opponent: Player | undefined, card: SideCard, gameState?: { players: Player[] }): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    if (!opponent || !gameState) {
+      return {
+        shouldUse: false,
+        confidence: 0,
+        reasoning: 'No opponent data for flip card analysis',
+        opportunity: '',
+        action: { action: 'stand' },
+        risk: 0.5
+      };
+    }
+    
+    const flipTargets = card.variant === 'flip_2_4' ? [2, 4] : [3, 6];
+    const benefit = this.calculateFlipCardBenefit(aiPlayer, opponent, flipTargets);
+    
+    // Enhanced flip card analysis
+    const aiTargetCards = aiPlayer.hand.filter(c => flipTargets.includes(Math.abs(c.value)));
+    const opponentTargetCards = opponent.hand.filter(c => flipTargets.includes(Math.abs(c.value)));
+    
+    let strategicValue = benefit;
+    
+    // Bonus for disrupting opponent's good position
+    if (opponent.score >= 16 && opponent.score <= 20 && opponentTargetCards.length > 0) {
+      strategicValue += 3;
+    }
+    
+    // Bonus for helping us when we're in trouble
+    if (aiPlayer.score > 20 && aiTargetCards.length > 0) {
+      strategicValue += 5;
+    }
+    
+    // Bonus for creating pressure on opponent
+    if (opponent.dealtSideCards?.filter(c => !c.isUsed).length === 0 && opponentTargetCards.length > 0) {
+      strategicValue += 2; // Opponent has no cards to respond with
+    }
+    
+    if (strategicValue > 2) {
+      return {
+        shouldUse: true,
+        confidence: Math.min(0.9, 0.6 + (strategicValue * 0.1)),
+        reasoning: `Flip ${flipTargets.join('&')} card provides strategic advantage (value: ${strategicValue})`,
+        opportunity: `Disrupt opponent with ${flipTargets.join('&')} flip`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.1
+      };
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: `Flip ${flipTargets.join('&')} card not strategically beneficial`,
+      opportunity: '',
+      action: { action: 'stand' },
+      risk: 0.3
+    };
+  }
+
+  /**
+   * Analyze double card usage
+   */
+  private analyzeDoubleCard(aiPlayer: Player, card: SideCard, currentScore: number, opponentScore: number, opponentStanding: boolean): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    const lastCard = aiPlayer.hand[aiPlayer.hand.length - 1];
+    if (!lastCard || !lastCard.isMainDeck) {
+      return {
+        shouldUse: false,
+        confidence: 0,
+        reasoning: 'No main deck card to double',
+        opportunity: '',
+        action: { action: 'stand' },
+        risk: 0.5
+      };
+    }
+    
+    const doubledValue = lastCard.value * 2;
+    const newScore = currentScore + doubledValue - lastCard.value; // Replace last card's value with doubled
+    
+    // Perfect score with double
+    if (newScore === 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.9,
+        reasoning: `Doubling ${lastCard.value} achieves perfect score of 20`,
+        opportunity: `Perfect score by doubling ${lastCard.value}`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.0
+      };
+    }
+    
+    // Good improvement without busting
+    if (newScore < 20 && newScore > currentScore) {
+      let confidence = 0.6;
+      
+      if (opponentStanding && newScore > opponentScore && opponentScore <= 20) {
+        confidence = 0.8;
+      }
+      
+      return {
+        shouldUse: true,
+        confidence,
+        reasoning: `Doubling ${lastCard.value} improves score to ${newScore}`,
+        opportunity: `Double ${lastCard.value} for score ${newScore}`,
+        action: { action: 'useSideCard', cardId: card.id },
+        risk: 0.0
+      };
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: `Doubling ${lastCard.value} would cause bust (${newScore})`,
+      opportunity: '',
+      action: { action: 'stand' },
+      risk: newScore > 20 ? 1.0 : 0.2
+    };
+  }
+
+  /**
+   * Analyze tiebreaker card usage
+   */
+  private analyzeTiebreakerCard(card: SideCard, currentScore: number, opponentScore: number, opponentStanding: boolean): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }, risk: number
+  } {
+    // Tiebreaker is most valuable when scores are tied
+    if (currentScore === opponentScore && opponentStanding) {
+      return {
+        shouldUse: true,
+        confidence: 0.95,
+        reasoning: `Tiebreaker card wins tied round at ${currentScore}`,
+        opportunity: `Win tied round with tiebreaker`,
+        action: { action: 'useSideCard', cardId: card.id, modifier: 'positive' },
+        risk: 0.0
+      };
+    }
+    
+    // Also good for getting exactly one point when tied
+    if (currentScore + 1 === opponentScore && opponentStanding && opponentScore <= 20) {
+      return {
+        shouldUse: true,
+        confidence: 0.8,
+        reasoning: `Tiebreaker +1 ties the round at ${opponentScore}`,
+        opportunity: `Tie round with tiebreaker +1`,
+        action: { action: 'useSideCard', cardId: card.id, modifier: 'positive' },
+        risk: 0.0
+      };
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: 'Tiebreaker not needed in current situation',
+      opportunity: '',
+      action: { action: 'stand' },
+      risk: 0.1
+    };
+  }
+
+  /**
+   * Analyze offensive flip card strategies to disrupt opponent
+   */
+  private analyzeOffensiveFlipStrategies(aiPlayer: Player, opponent: Player): {
+    shouldUse: boolean, confidence: number, reasoning: string, opportunity: string, action: { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' }
+  } {
+    const availableCards = aiPlayer.dealtSideCards?.filter(c => !c.isUsed) || [];
+    
+    for (const card of availableCards) {
+      if (card.variant === 'flip_2_4' || card.variant === 'flip_3_6') {
+        const flipTargets = card.variant === 'flip_2_4' ? [2, 4] : [3, 6];
+        
+        // Check if opponent has many target cards that are positive
+        const opponentTargetCards = opponent.hand.filter(c => 
+          flipTargets.includes(Math.abs(c.value)) && c.value > 0
+        );
+        
+        // If opponent has 2+ positive target cards and is in good position
+        if (opponentTargetCards.length >= 2 && opponent.score >= 16 && opponent.score <= 20) {
+          const potentialDamage = opponentTargetCards.reduce((sum, c) => sum + (c.value * 2), 0);
+          
+          if (potentialDamage >= 4) { // Significant disruption
+            return {
+              shouldUse: true,
+              confidence: 0.8,
+              reasoning: `Flip ${flipTargets.join('&')} will disrupt opponent's strong position`,
+              opportunity: `Offensive flip to damage opponent`,
+              action: { action: 'useSideCard', cardId: card.id }
+            };
+          }
+        }
+      }
+    }
+    
+    return {
+      shouldUse: false,
+      confidence: 0,
+      reasoning: 'No offensive flip opportunities',
+      opportunity: '',
+      action: { action: 'stand' }
+    };
+  }
+
+  /**
+   * Determine if we should try to force opponent to use their defensive cards
+   */
+  private shouldForceOpponentResponse(aiPlayer: Player, opponent: Player): boolean {
+    // If opponent has few cards left and we have good cards, we might want to pressure them
+    const opponentCardsLeft = opponent.dealtSideCards?.filter(c => !c.isUsed).length || 0;
+    const aiCardsLeft = aiPlayer.dealtSideCards?.filter(c => !c.isUsed).length || 0;
+    
+    // If we have more cards and opponent is in vulnerable position
+    return aiCardsLeft > opponentCardsLeft && opponent.score >= 16 && opponent.score < 20;
   }
 
   /**
