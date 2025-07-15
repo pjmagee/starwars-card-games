@@ -24,17 +24,17 @@ const useStyles = makeStyles({
   content: {
     flex: 1,
     display: 'flex',
-    gap: '8px',
-    padding: '4px',
+    gap: tokens.spacingHorizontalS, // Reduced gap between sections
+    padding: tokens.spacingVerticalM,
     overflow: 'hidden',
     minHeight: 0,
     height: 'calc(100vh - 120px)',
   },
   availableSection: {
-    flex: 1.5,
+    flex: 1.2, // Reduced from 2 to balance more equally (60/40 split)
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: tokens.spacingVerticalS,
     minHeight: 0,
     minWidth: 0,
     height: '100%',
@@ -42,8 +42,8 @@ const useStyles = makeStyles({
   cardGrid: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
-    padding: '4px',
+    gap: tokens.spacingVerticalXS,
+    padding: tokens.spacingVerticalM,
     backgroundColor: tokens.colorNeutralBackground2,
     borderRadius: tokens.borderRadiusLarge,
     border: `2px solid ${tokens.colorNeutralStroke1}`,
@@ -87,21 +87,21 @@ const useStyles = makeStyles({
     transform: 'scale(1.2)',
   },
   selectedSection: {
-    flex: 1.2,
+    flex: 1, // Balanced with availableSection for better 60/40 split
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: tokens.spacingVerticalS,
     minHeight: 0,
-    minWidth: '450px',
-    maxWidth: '550px',
+    minWidth: '450px', // Increased minimum width for better balance
+    maxWidth: 'none', // Removed max width constraint
     height: '100%',
   },
   selectedGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(5, 1fr)',
     gridTemplateRows: 'repeat(2, 1fr)',
-    gap: '6px',
-    padding: '8px',
+    gap: tokens.spacingHorizontalS,
+    padding: tokens.spacingVerticalM,
     backgroundColor: tokens.colorBrandBackground2,
     borderRadius: tokens.borderRadiusLarge,
     border: `2px solid ${tokens.colorBrandStroke1}`,
@@ -117,8 +117,8 @@ const useStyles = makeStyles({
     flexShrink: 0,
   },
   emptySlot: {
-    width: '80px',
-    height: '110px',
+    width: '95px', // Increased from 80px
+    height: '125px', // Increased from 110px
     border: `2px dashed ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusMedium,
     display: 'flex',
@@ -138,22 +138,22 @@ const useStyles = makeStyles({
     fontWeight: tokens.fontWeightSemibold,
   },
   cardGroupContainer: {
-    marginBottom: '3px',
+    marginBottom: tokens.spacingVerticalS,
   },
   cardGroupTitle: {
-    marginBottom: '1px',
+    marginBottom: tokens.spacingVerticalXS,
     display: 'block',
   },
   cardGroupDescription: {
-    marginBottom: '2px',
+    marginBottom: tokens.spacingVerticalXS,
     display: 'block',
     color: tokens.colorNeutralForeground3,
   },
   cardGroupGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(70px, max-content))',
-    gap: '3px',
-    marginBottom: '4px',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(85px, max-content))', // Increased from 70px
+    gap: tokens.spacingHorizontalS,
+    marginBottom: tokens.spacingVerticalS,
     width: '100%',
     justifyContent: 'start',
   },
@@ -224,7 +224,7 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
                 isMainDeck={false}
                 variant={getCardVariant(sideCard)}
                 disabled={isCardDisabled(sideCard.id)}
-                size="tiny"
+                size="small" // Increased from "tiny" to "small"
               />
               {isCardSelected(sideCard.id) && (
                 <div className={styles.selectionBadge}>
@@ -317,7 +317,7 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
                       value={card.value}
                       isMainDeck={false}
                       variant={getCardVariant(card)}
-                      size="small"
+                      size="normal" // Increased from "small" to "normal"
                     />
                   ) : (
                     <div className={styles.emptySlot}>
