@@ -13,6 +13,7 @@ import {
 } from '@fluentui/react-icons';
 import PazaakCardComponent from '../../components/PazaakCard';
 import type { SideCard } from './types';
+import { soundEffects } from '../../utils/soundEffects';
 
 interface SideDeckSelectionProps {
   playerName: string;
@@ -177,6 +178,8 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
 
   const handleConfirmSelection = () => {
     if (selectedCards.length === 10) {
+      // Play shuffle sound effect when transitioning to game
+      soundEffects.playShuffle();
       onSelectionComplete(selectedCards);
     }
   };
@@ -268,27 +271,27 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
             {renderCardGroup(
               "Blue Plus Cards", 
               groupedCards.positive, 
-              "Add points to your total (+1 to +6)"
+              "Add points to your total (+1 to +6) — 12 cards in your deck"
             )}
             {renderCardGroup(
               "Red Minus Cards", 
               groupedCards.negative, 
-              "Subtract points from your total (-1 to -6)"
+              "Subtract points from your total (-1 to -6) — 12 cards in your deck"
             )}
             {renderCardGroup(
-              "Plus or Minus Cards", 
+              "Red/Blue Dual Cards", 
               groupedCards.dual, 
-              "Choose positive or negative when played (±1 to ±6)"
+              "Choose positive or negative when played (±1 to ±6) — 12 cards in your deck"
             )}
             {renderCardGroup(
-              "Flip Cards", 
+              "Yellow Flip Cards", 
               groupedCards.flip, 
-              "Turn target numbers positive/negative (2&4 or 3&6)"
+              "Turn target numbers positive/negative (2&4 or 3&6) — 4 cards in your deck"
             )}
             {renderCardGroup(
-              "Special Cards", 
+              "Yellow Special Cards", 
               groupedCards.special, 
-              "Double, Tiebreaker, and Variable effects"
+              "Double, Tiebreaker, and Variable effects — 3 cards in your deck"
             )}
           </div>
         </Card>

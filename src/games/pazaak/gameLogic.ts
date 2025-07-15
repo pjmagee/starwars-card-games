@@ -2,6 +2,7 @@
 
 import type { PazaakCard, SideCard, Player, GameState, RoundResult } from './types';
 import { PazaakAI } from './aiLogic';
+import { soundEffects } from '../../utils/soundEffects';
 
 export class PazaakGame {
   private state: GameState;
@@ -99,9 +100,10 @@ export class PazaakGame {
     let cardId = 0;
     
     // Generate one complete side deck collection per player (43 cards each)
-    // Based on commercial breakdown: each player gets their own set to choose from
+    // Based on official pazaak-cards-breakdown.md: "Two Side Decks" means one deck per player
+    // So each player gets half of the total counts shown
     
-    // Red Minus Cards: 1-6 (12 cards - 2x each value for variety)
+    // Red Minus Cards: 1-6 (12 cards - 2x each value per player)
     for (let value = 1; value <= 6; value++) {
       for (let copy = 0; copy < 2; copy++) {
         sideCards.push({
@@ -114,7 +116,7 @@ export class PazaakGame {
       }
     }
     
-    // Blue Plus Cards: 1-6 (12 cards - 2x each value for variety)
+    // Blue Plus Cards: 1-6 (12 cards - 2x each value per player)
     for (let value = 1; value <= 6; value++) {
       for (let copy = 0; copy < 2; copy++) {
         sideCards.push({
@@ -127,7 +129,7 @@ export class PazaakGame {
       }
     }
     
-    // Red/Blue Dual Cards: ±1-6 (12 cards - 2x each value for variety)
+    // Red/Blue Dual Cards: ±1-6 (12 cards - 2x each value per player)
     for (let value = 1; value <= 6; value++) {
       for (let copy = 0; copy < 2; copy++) {
         sideCards.push({
@@ -140,7 +142,7 @@ export class PazaakGame {
       }
     }
     
-    // Yellow Specialty Cards: 2&4 Flip (2 cards)
+    // Yellow Flip Cards: 2&4 Flip (2 cards per player)
     for (let copy = 0; copy < 2; copy++) {
       sideCards.push({
         id: `side-${cardId++}`,
@@ -152,7 +154,7 @@ export class PazaakGame {
       });
     }
     
-    // Yellow Specialty Cards: 3&6 Flip (2 cards)
+    // Yellow Flip Cards: 3&6 Flip (2 cards per player)
     for (let copy = 0; copy < 2; copy++) {
       sideCards.push({
         id: `side-${cardId++}`,
@@ -164,7 +166,7 @@ export class PazaakGame {
       });
     }
     
-    // Yellow Specialty Cards: Double (1 card)
+    // Yellow Special Cards: Double (1 card per player)
     sideCards.push({
       id: `side-${cardId++}`,
       value: 0,
@@ -173,7 +175,7 @@ export class PazaakGame {
       description: 'Double: Doubles the value of the last main deck card'
     });
     
-    // Yellow Specialty Cards: Tiebreaker (1 card)
+    // Yellow Special Cards: Tiebreaker (1 card per player)
     sideCards.push({
       id: `side-${cardId++}`,
       value: 1,
@@ -182,7 +184,7 @@ export class PazaakGame {
       description: 'Tiebreaker: ±1 that wins tied rounds'
     });
     
-    // Yellow Specialty Cards: Variable ±1/2 (1 card)
+    // Yellow Special Cards: Variable ±1/2 (1 card per player)
     sideCards.push({
       id: `side-${cardId++}`,
       value: 1,
@@ -376,6 +378,9 @@ export class PazaakGame {
     if (!player || this.state.mainDeck.length === 0 || player.isStanding || player.hand.length >= 9) {
       return this.state;
     }
+
+    // Play draw sound effect
+    soundEffects.playDrawStand();
 
     const card = this.state.mainDeck.pop()!;
     player.hand.push(card);
@@ -588,6 +593,9 @@ export class PazaakGame {
   public stand(playerId: string): GameState {
     const player = this.state.players.find(p => p.id === playerId);
     if (player) {
+      // Play stand sound effect
+      soundEffects.playDrawStand();
+      
       player.isStanding = true;
     }
 
@@ -689,6 +697,11 @@ export class PazaakGame {
         roundWinners[0].sets++;
         roundResult.winnerId = roundWinners[0].id;
         console.log(`Round ${this.state.round}: ${roundWinners[0].name} wins with score ${maxScore}`);
+        
+        // Play win sound if it's the human player who won
+        if (roundWinners[0].id !== 'ai-player') {
+          soundEffects.playWin();
+        }
       } else if (roundWinners.length > 1) {
         // Handle ties - check for tiebreaker cards
         const tiebreakerWinners = roundWinners.filter(p => p.tiebreaker);
@@ -697,6 +710,11 @@ export class PazaakGame {
           tiebreakerWinners[0].sets++;
           roundResult.winnerId = tiebreakerWinners[0].id;
           console.log(`Round ${this.state.round}: ${tiebreakerWinners[0].name} wins with tiebreaker`);
+          
+          // Play win sound if it's the human player who won
+          if (tiebreakerWinners[0].id !== 'ai-player') {
+            soundEffects.playWin();
+          }
         } else {
           // No tiebreaker or multiple tiebreakers - round is void and must be restarted
           roundResult.isVoid = true;
@@ -715,6 +733,11 @@ export class PazaakGame {
       this.state.gamePhase = 'gameEnd';
       this.state.winner = gameWinner;
       console.log(`Game over: ${gameWinner.name} wins!`);
+      
+      // Play win sound if it's the human player who won the game
+      if (gameWinner.id !== 'ai-player') {
+        soundEffects.playWin();
+      }
     } else if (roundResult.isVoid) {
       // For void rounds (ties without tiebreaker), restart the round immediately
       this.state.gamePhase = 'roundEnd';

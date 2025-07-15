@@ -28,6 +28,7 @@ import {
 } from '@fluentui/react-icons';
 import PazaakGameLayout from './games/pazaak/PazaakGameLayout';
 import AppNavigation from './components/AppNavigation';
+import { AudioPlayer } from './components/AudioPlayer';
 import { NotificationProvider } from './components/NotificationSystem';
 import { useNotifications } from './hooks/useNotifications';
 
@@ -386,6 +387,12 @@ function App() {
       <NotificationProvider>
         <div className={styles.appContainer}>
           <AppContent />
+          <AudioPlayer 
+            title="Card Game Music"
+            autoPlay={true}
+            loop={true}
+            volume={0.3}
+          />
         </div>
       </NotificationProvider>
     </FluentProvider>
