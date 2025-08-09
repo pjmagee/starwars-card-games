@@ -8,6 +8,12 @@ import {
   Title3,
   makeStyles,
   tokens,
+  Dialog,
+  DialogSurface,
+  DialogBody,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@fluentui/react-components';
 import {
   Bot24Regular,
@@ -470,6 +476,8 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
     initialMode === 'multiplayer' ? 'multiplayer' : 'menu'
   );
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [endTurnDialogOpen, setEndTurnDialogOpen] = useState(false);
+  const [pendingEndTurnScore, setPendingEndTurnScore] = useState<number | null>(null);
 
   // Sync multiplayer state with local game state
   useEffect(() => {
@@ -630,13 +638,25 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
       const currentPlayer = gameState.players[gameState.currentPlayerIndex];
       if (currentPlayer.id !== 'ai-player') {
         if (currentPlayer.score >= 18) {
-          if (!window.confirm(`End Turn at ${currentPlayer.score}? You'll be forced to draw next turn (rule: must draw before standing). Stand now if you want to lock in this score.`)) return;
+          setPendingEndTurnScore(currentPlayer.score);
+          setEndTurnDialogOpen(true);
+          return;
         }
-        const newState = game.endTurn();
-        setGameState(newState);
+        const newStateImmediate = game.endTurn();
+        setGameState(newStateImmediate);
       }
     }
   }, [game, gameState, gameMode, multiplayer]);
+
+  const confirmEndTurn = useCallback(() => {
+    if (!game || !gameState) return;
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (currentPlayer.id === 'ai-player') return;
+    const newState = game.endTurn();
+    setGameState(newState);
+    setEndTurnDialogOpen(false);
+    setPendingEndTurnScore(null);
+  }, [game, gameState]);
 
   const handleNextRound = useCallback(() => {
     if (gameMode === 'multiplayer' && multiplayer.state.isConnected) {
@@ -1115,6 +1135,21 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
 
   return (
     <div className={styles.gameContainer}>
+      {/* End Turn Confirmation Dialog */}
+      <Dialog open={endTurnDialogOpen} onOpenChange={(_, data) => { if (!data.open) { setEndTurnDialogOpen(false); setPendingEndTurnScore(null); } }}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>End Turn at {pendingEndTurnScore}</DialogTitle>
+            <DialogContent>
+              You'll be forced to draw at the start of your next turn (rule: must draw before standing). If you want to lock this score you must Stand now. Proceed to end turn?
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => { setEndTurnDialogOpen(false); setPendingEndTurnScore(null); }}>Cancel</Button>
+              <Button appearance="primary" onClick={confirmEndTurn}>End Turn</Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
       {/* Session Indicator - only show if in multiplayer mode */}
       {multiplayer.state.isConnected && (
         <div className={styles.sessionIndicator}>

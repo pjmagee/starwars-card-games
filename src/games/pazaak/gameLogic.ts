@@ -365,7 +365,8 @@ export class PazaakGame {
           // If side card didn't auto-end turn (not standing/bust), end turn now to respect one action sequence per turn
           const stillActive = !currentPlayer.isStanding && currentPlayer.score <= 20;
           if (stillActive) {
-            this.endTurn();
+            const afterEnd = this.endTurn();
+            return afterEnd; // IMPORTANT: return post-endTurn state so UI advances turn
           }
           return stateAfterCard;
         }

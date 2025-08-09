@@ -33,7 +33,7 @@ export const ActionLog: React.FC<ActionLogProps> = ({ gameState, max }) => {
       <Divider />
       <div className="action-log-scroll" aria-label="Recent actions list">
         {actions.map(a => (
-          <div key={a.ts} style={{ padding: '2px 0' }}>
+          <div key={a.ts} className="action-log-row">
             <Text size={200}>
               {actionIcon(a.action)} {a.playerName}: {a.action}{a.detail ? ` (${a.detail})` : ''} → {a.scoreAfter}
             </Text>
