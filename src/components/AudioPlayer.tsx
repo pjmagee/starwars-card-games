@@ -23,8 +23,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   
-  // Public folder assets are served from the root URL
-  const audioSrc = '/card_background_music.mp3';
+  // Build asset path without using URL() (import.meta.env.BASE_URL is a path like '/starwars-card-games/' not an absolute URL)
+  const audioSrc = `${(import.meta.env.BASE_URL || '/').replace(/\\/g,'/').replace(/\/+$/, '/') }card_background_music.mp3`;
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -91,7 +91,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [autoPlay, loop, currentVolume]);
+  }, [autoPlay, loop, currentVolume, audioSrc]);
 
   const togglePlayPause = () => {
     const audio = audioRef.current;
@@ -123,7 +123,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   return (
     <div className="audio-player">
-      <audio ref={audioRef} src={audioSrc} preload="auto" />
+  <audio ref={audioRef} src={audioSrc} preload="auto" data-base-url={import.meta.env.BASE_URL} />
       
       <Button
         appearance="subtle"

@@ -2,12 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <!-- Use relative asset paths so GitHub Pages subdirectory base works before Vite rewrites. -->
+  <link rel="icon" type="image/svg+xml" href="./vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Star Wars Card Games</title>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Simple boot diagnostic so a white page will at least show a console log.
+      console.log('[boot] index.html loaded');
+    </script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

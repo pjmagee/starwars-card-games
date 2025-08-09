@@ -16,8 +16,9 @@ export class SoundEffects {
       'card_draw_fx.wav'
     ];
 
+    const base = (import.meta.env.BASE_URL || '/').replace(/\\/g,'/').replace(/\/+$/, '/');
     sounds.forEach(soundFile => {
-      const audio = new Audio(`/${soundFile}`);
+      const audio = new Audio(`${base}${soundFile}`);
       audio.preload = 'auto';
       audio.volume = this.volume;
       this.audioCache.set(soundFile, audio);
