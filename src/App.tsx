@@ -27,9 +27,11 @@ import {
   Navigation24Regular,
 } from '@fluentui/react-icons';
 import PazaakGameLayout from './games/pazaak/PazaakGameLayout';
+import MultiplayerSetup from './components/MultiplayerSetup';
 import AppNavigation from './components/AppNavigation';
 import { AudioPlayer } from './components/AudioPlayer';
 import { NotificationProvider } from './components/NotificationSystem';
+import { MultiplayerProvider, useMultiplayer } from './contexts/MultiplayerContext';
 import { useNotifications } from './hooks/useNotifications';
 
 type GameMode = 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'sabacc-spike' | 'sabacc-kessel';
@@ -129,7 +131,13 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('normal');
 
   const handleGameSelect = (game: GameMode) => {
+    console.log('[App] Selecting game:', game);
     setCurrentGame(game);
+  };
+
+  const handleMultiplayerGameStart = () => {
+    // Retained for compatibility; actual transition determined by multiplayer context phase
+    console.log('🎮 Multiplayer start callback fired');
   };
 
   const handleBackToMenu = () => {
@@ -152,6 +160,7 @@ function App() {
 
   const AppContent = () => {
     const { showToast } = useNotifications();
+    const multiplayer = useMultiplayer();
 
     const renderGameMenu = () => (
       <div className={styles.menuGrid}>
@@ -217,18 +226,8 @@ function App() {
                   Use 62 cards to get closest to zero with positive and negative values.
                 </Body1>
                 <div className={styles.gameActions}>
-                  <Button
-                    icon={<Bot24Regular />}
-                    disabled
-                  >
-                    Play vs AI
-                  </Button>
-                  <Button
-                    icon={<Group24Regular />}
-                    disabled
-                  >
-                    Multiplayer
-                  </Button>
+                  <Button icon={<Bot24Regular />} disabled>Play vs AI</Button>
+                  <Button icon={<Group24Regular />} disabled>Multiplayer</Button>
                 </div>
               </div>
             }
@@ -249,18 +248,8 @@ function App() {
                   Strategic gameplay with unique card mechanics and betting rounds.
                 </Body1>
                 <div className={styles.gameActions}>
-                  <Button
-                    icon={<Bot24Regular />}
-                    disabled
-                  >
-                    Play vs AI
-                  </Button>
-                  <Button
-                    icon={<Group24Regular />}
-                    disabled
-                  >
-                    Multiplayer
-                  </Button>
+                  <Button icon={<Bot24Regular />} disabled>Play vs AI</Button>
+                  <Button icon={<Group24Regular />} disabled>Multiplayer</Button>
                 </div>
               </div>
             }
@@ -274,7 +263,9 @@ function App() {
         case 'pazaak':
           return <PazaakGameLayout />;
         case 'pazaak-multiplayer':
-          return <PazaakGameLayout initialMode="multiplayer" />;
+          return multiplayer.state.gamePhase === 'playing'
+            ? <PazaakGameLayout initialMode="multiplayer" />
+            : <MultiplayerSetup onGameStart={handleMultiplayerGameStart} />;
         case 'sabacc-spike':
         case 'sabacc-kessel':
           return (
@@ -385,15 +376,17 @@ function App() {
   return (
     <FluentProvider theme={webLightTheme}>
       <NotificationProvider>
-        <div className={styles.appContainer}>
-          <AppContent />
-          <AudioPlayer 
-            title="Card Game Music"
-            autoPlay={true}
-            loop={true}
-            volume={0.3}
-          />
-        </div>
+        <MultiplayerProvider>
+          <div className={styles.appContainer}>
+            <AppContent />
+            <AudioPlayer 
+              title="Card Game Music"
+              autoPlay={true}
+              loop={true}
+              volume={0.3}
+            />
+          </div>
+        </MultiplayerProvider>
       </NotificationProvider>
     </FluentProvider>
   );

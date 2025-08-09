@@ -88,7 +88,7 @@ export const MultiplayerDebugPanel: React.FC<MultiplayerDebugPanelProps> = ({
     }
   };
 
-  const debugInfo = multiplayerGame?.getDebugInfo();
+  // Removed unused debugInfo variable after refactor
   const completionStatus = multiplayerGame?.getSideDeckCompletionStatus();
 
   return (

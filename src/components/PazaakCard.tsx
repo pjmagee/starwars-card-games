@@ -374,4 +374,5 @@ const PazaakCardComponent = React.forwardRef<HTMLDivElement, PazaakCardProps>(({
   );
 });
 
+export { PazaakCardComponent as PazaakCard };
 export default PazaakCardComponent;

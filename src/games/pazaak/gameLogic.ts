@@ -57,7 +57,8 @@ export class PazaakGame {
       gamePhase: 'sideDeckSelection',
       round: 1,
       cardsDealtThisRound: 0,
-      roundResults: []
+      roundResults: [],
+      actionHistory: []
     };
   }
 
@@ -99,9 +100,9 @@ export class PazaakGame {
     const sideCards: SideCard[] = [];
     let cardId = 0;
     
-    // Generate one complete side deck collection per player (43 cards each)
-    // Based on official pazaak-cards-breakdown.md: "Two Side Decks" means one deck per player
-    // So each player gets half of the total counts shown
+  // Generate one complete side deck collection per player (43 cards each)
+  // Based on official pazaak-cards-breakdown.md: "Two Side Decks" means one deck per player
+  // So each player gets half of the total counts shown
     
     // Red Minus Cards: 1-6 (12 cards - 2x each value per player)
     for (let value = 1; value <= 6; value++) {
@@ -194,7 +195,13 @@ export class PazaakGame {
       description: 'Variable: Choose ±1 or ±2 when played'
     });
 
-    return sideCards; // 43 total cards per player - their personal collection to choose from
+  return sideCards; // 43 total cards per player - their personal collection to choose from
+  }
+
+  // Static method to generate side cards for UI purposes
+  public static generateSideDeckForUI(): SideCard[] {
+    const tempGame = new PazaakGame(['temp']);
+    return tempGame.generateSideDeck();
   }
 
   public selectSideCards(playerId: string, cardIds: string[]): GameState {
@@ -231,6 +238,9 @@ export class PazaakGame {
         player.hand = [];
       });
       this.state.gamePhase = 'playing';
+    // Reset per-turn flags for new game start
+    this.state.turnHasDrawn = false;
+    this.state.turnUsedSideCard = false;
       
       // Per Pazaak rules, each round starts with each player drawing a card
       this.state.players.forEach(player => {
@@ -241,6 +251,9 @@ export class PazaakGame {
           this.state.cardsDealtThisRound++;
         }
       });
+    // After initial automatic card, first active player still must draw this turn
+    this.state.turnHasDrawn = false;
+    this.state.turnUsedSideCard = false;
     }
 
     return { ...this.state };
@@ -271,20 +284,26 @@ export class PazaakGame {
     
     let actionMessage = '';
     
-    switch (decision.action) {
+  switch (decision.action) {
       case 'draw': {
+        // If AI already drew this turn (should not request second draw), convert to endTurn
+        if (this.state.turnHasDrawn) {
+          actionMessage = `➡️ Ending turn (already drew)`;
+          this.state.aiLastAction = actionMessage;
+          this.addToAIActionHistory(actionMessage);
+          return this.endTurn();
+        }
         actionMessage = `🎴 Drawing a card...`;
         this.state.aiLastAction = actionMessage;
         const newState = this.dealCard(currentPlayer.id);
-        
-        // Update with actual card drawn
+        // After a draw, the AI's turnHasDrawn will be true unless auto-ended; AI may optionally use a side card on a subsequent invocation
         const drawnCard = currentPlayer.hand[currentPlayer.hand.length - 1];
         if (drawnCard) {
           actionMessage = `🎴 Drew ${drawnCard.value} (Score: ${currentPlayer.score})`;
           this.state.aiLastAction = actionMessage;
         }
-        
         this.addToAIActionHistory(actionMessage);
+        // If AI is neither standing nor busted and hasn't used a side card, we'll wait for next processAITurn cycle to decide side card / stand / endTurn
         return newState;
       }
         
@@ -293,6 +312,12 @@ export class PazaakGame {
         this.state.aiLastAction = actionMessage;
         this.addToAIActionHistory(actionMessage);
         return this.stand(currentPlayer.id);
+      }
+      case 'endTurn': {
+        actionMessage = `➡️ Ending turn at ${currentPlayer.score}`;
+        this.state.aiLastAction = actionMessage;
+        this.addToAIActionHistory(actionMessage);
+        return this.endTurn();
       }
         
       case 'useSideCard': {
@@ -336,12 +361,22 @@ export class PazaakGame {
             this.state.aiLastAction = actionMessage;
             this.addToAIActionHistory(actionMessage);
           }
-          return this.useSideCard(currentPlayer.id, decision.cardId, decision.modifier);
+          const stateAfterCard = this.useSideCard(currentPlayer.id, decision.cardId, decision.modifier);
+          // If side card didn't auto-end turn (not standing/bust), end turn now to respect one action sequence per turn
+          const stillActive = !currentPlayer.isStanding && currentPlayer.score <= 20;
+          if (stillActive) {
+            this.endTurn();
+          }
+          return stateAfterCard;
         }
         break;
       }
     }
 
+  // Fallback: if AI has already drawn this turn and is not standing, end turn to pass play back
+  if (this.state.turnHasDrawn && !currentPlayer.isStanding) {
+      this.endTurn();
+    }
     return this.state;
   }
 
@@ -375,7 +410,9 @@ export class PazaakGame {
 
   public dealCard(playerId: string): GameState {
     const player = this.state.players.find(p => p.id === playerId);
-    if (!player || this.state.mainDeck.length === 0 || player.isStanding || player.hand.length >= 9) {
+  // Only the current player may draw; enforce one draw per turn using turnHasDrawn flag
+  const isCurrentPlayer = this.state.players[this.state.currentPlayerIndex]?.id === playerId;
+  if (!player || !isCurrentPlayer || this.state.mainDeck.length === 0 || player.isStanding || player.hand.length >= 9 || this.state.turnHasDrawn) {
       return this.state;
     }
 
@@ -386,6 +423,7 @@ export class PazaakGame {
     player.hand.push(card);
     player.score = this.calculateScore(player);
     this.state.cardsDealtThisRound++;
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'draw', detail: `${card.value}`, scoreAfter: player.score });
 
     // Update AI action display if it's AI player
     if (playerId === 'ai-player') {
@@ -396,14 +434,19 @@ export class PazaakGame {
     if (player.score === 20) {
       player.isStanding = true;
       console.log(`${player.name} stands at 20`);
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'autoStand', detail: '20', scoreAfter: player.score });
       if (playerId === 'ai-player') {
         this.state.aiLastAction = `🎯 Drew ${card.value} → Perfect 20! Standing.`;
       }
+  // Advance immediately since player auto-stood at 20
+  this.endTurnInternal();
+  return { ...this.state };
     }
     // Check for bust (over 20)
     else if (player.score > 20) {
       player.isStanding = true;
       console.log(`${player.name} busts with ${player.score}`);
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'bust', detail: `${player.score}`, scoreAfter: player.score });
       if (playerId === 'ai-player') {
         this.state.aiLastAction = `💥 Drew ${card.value} → BUSTED with ${player.score}!`;
       }
@@ -419,33 +462,52 @@ export class PazaakGame {
     else if (player.hand.length >= 9) {
       player.isStanding = true;
       console.log(`${player.name} stands with full board (9 cards)`);
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'autoStand', detail: 'fullBoard', scoreAfter: player.score });
       if (playerId === 'ai-player') {
         this.state.aiLastAction = `📋 Board full → Standing at ${player.score}`;
       }
+  // Advance to next player when board fills
+  this.endTurnInternal();
+  return { ...this.state };
     }
 
-    // Always advance turn after drawing a card
-    this.nextTurn();
+  // Mark draw so player can optionally use a side card before ending turn or standing
+  this.state.turnHasDrawn = true;
+  this.state.turnUsedSideCard = false;
 
     return { ...this.state };
   }
 
   public useSideCard(playerId: string, cardId: string, modifier?: 'positive' | 'negative'): GameState {
     const player = this.state.players.find(p => p.id === playerId);
-    if (!player || player.hand.length >= 9) return this.state;
+    if (!player) return this.state;
 
     // Find the side card in the player's dealt side cards (their 4-card hand)
     const sideCard = player.dealtSideCards.find(card => card.id === cardId && !card.isUsed);
     if (!sideCard) return this.state;
 
+    // If board is full (9 cards), only allow flip cards (they don't add a new card)
+    if (player.hand.length >= 9 && !['flip_2_4','flip_3_6'].includes(sideCard.variant)) {
+      return this.state; // Cannot use non-flip side card on full board
+    }
+
     sideCard.isUsed = true;
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'side', detail: `${sideCard.variant}${modifier ? ':'+modifier : ''}`, scoreAfter: player.score });
 
     // Apply special card effects
     this.applySideCardEffect(player, sideCard, modifier);
     
-    // Always advance turn after using a side card, regardless of standing status
-    // The game will handle round ending in nextTurn() if needed
-    this.nextTurn();
+  // Mark that a side card was used this turn; player can now stand or end turn
+  this.state.turnUsedSideCard = true;
+  // If side card caused automatic standing or bust, process turn/round end
+  if (player.score > 20) {
+    // Bust ends the round immediately
+    return this.endRound();
+  }
+  if (player.isStanding) {
+    this.endTurnInternal();
+    return { ...this.state };
+  }
     
     return { ...this.state };
   }
@@ -560,7 +622,7 @@ export class PazaakGame {
     }
 
     // Create effect card only if there's a direct value to add and space on the board
-    if (effectValue !== 0 && player.hand.length < 9) {
+  if (effectValue !== 0 && player.hand.length < 9) {
       const effectCard: PazaakCard = {
         id: `effect-${sideCard.id}`,
         value: effectValue,
@@ -597,12 +659,39 @@ export class PazaakGame {
       soundEffects.playDrawStand();
       
       player.isStanding = true;
+  this.state.actionHistory?.push({ ts: Date.now(), playerId, playerName: player.name, action: 'stand', scoreAfter: player.score });
     }
-
-    // Always advance turn after standing - let the other player continue
-    this.nextTurn();
+    // Standing ends the turn immediately
+    this.endTurnInternal();
 
     return { ...this.state };
+  }
+
+  public endTurn(): GameState {
+    // Only allow end turn if current player has drawn (per rules you must draw first)
+    if (!this.state.turnHasDrawn) return this.state;
+    const current = this.getCurrentPlayer();
+    if (current) {
+      this.state.actionHistory?.push({ ts: Date.now(), playerId: current.id, playerName: current.name, action: 'endTurn', scoreAfter: current.score });
+    }
+    this.endTurnInternal();
+    return { ...this.state };
+  }
+
+  private endTurnInternal(): void {
+    this.state.turnHasDrawn = false;
+    this.state.turnUsedSideCard = false;
+    // If all OTHER players are standing/busted and current player is not standing, keep turn (they may draw again next turn).
+    const current = this.getCurrentPlayer();
+    if (current && !current.isStanding && current.score <= 20) {
+      const othersActive = this.state.players.some(p => p.id !== current.id && !p.isStanding && p.score <= 20);
+      if (!othersActive) {
+        // No active opponents; player may continue drawing until they choose to stand/bust/fill board.
+        console.log('Only one active player remains – retaining turn for continued play');
+        return;
+      }
+    }
+    this.nextTurn();
   }
 
   public forfeit(playerId: string): GameState {
@@ -644,22 +733,19 @@ export class PazaakGame {
       return this.endRound();
     }
 
-    // Move to next player
-    let attempts = 0;
-    const maxAttempts = this.state.players.length;
-    
-    do {
+    // Find next player who is NOT standing/busted. Important: it's valid to return to the same
+    // player immediately (e.g. opponent stood) so we loop up to player count times looking.
+    let found = false;
+    for (let i = 0; i < this.state.players.length; i++) {
       this.state.currentPlayerIndex = (this.state.currentPlayerIndex + 1) % this.state.players.length;
-      attempts++;
-    } while (
-      (this.state.players[this.state.currentPlayerIndex].isStanding || 
-       this.state.players[this.state.currentPlayerIndex].score > 20) && 
-      attempts < maxAttempts
-    );
-
-    // Double check - if we couldn't find a non-standing player, end the round
-    if (attempts >= maxAttempts) {
-      console.log('No valid next player found, ending round');
+      const candidate = this.state.players[this.state.currentPlayerIndex];
+      if (!candidate.isStanding && candidate.score <= 20) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      console.log('No active player found (all standing/busted) during rotation – ending round');
       return this.endRound();
     }
 
@@ -779,6 +865,9 @@ export class PazaakGame {
     this.state.aiLastAction = undefined; // Clear AI action for new round
     // Reshuffle main deck
     this.state.mainDeck = this.createMainDeck();
+  // Reset per-turn flags at new round start
+  this.state.turnHasDrawn = false;
+  this.state.turnUsedSideCard = false;
 
     // Per Pazaak rules, each round starts with each player drawing a card
     this.state.players.forEach(player => {
@@ -789,6 +878,9 @@ export class PazaakGame {
         this.state.cardsDealtThisRound++;
       }
     });
+  // First player still needs to draw this turn
+  this.state.turnHasDrawn = false;
+  this.state.turnUsedSideCard = false;
 
     return { ...this.state };
   }

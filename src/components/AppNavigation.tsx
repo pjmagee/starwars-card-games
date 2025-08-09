@@ -19,7 +19,7 @@ import {
 
 interface AppNavigationProps {
   currentGame: string;
-  onGameSelect: (game: 'menu' | 'pazaak' | 'sabacc-spike' | 'sabacc-kessel') => void;
+  onGameSelect: (game: 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'sabacc-spike' | 'sabacc-kessel') => void;
   onShowRules: () => void;
   onShowAbout: () => void;
 }
@@ -60,7 +60,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({
           Practice Mode
         </NavSubItem>
         
-        <NavSubItem value="pazaak-multiplayer" disabled>
+        <NavSubItem value="pazaak-multiplayer" onClick={() => onGameSelect('pazaak-multiplayer')}>
           Multiplayer
         </NavSubItem>
         

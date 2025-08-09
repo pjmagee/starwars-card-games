@@ -40,3 +40,21 @@
 .read-the-docs {
   color: #888;
 }
+
+.scroll-column-small {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 4px; /* space for scrollbar */
+}
+
+.action-log-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 4px;
+}

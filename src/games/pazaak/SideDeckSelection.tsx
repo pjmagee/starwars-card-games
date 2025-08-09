@@ -167,13 +167,34 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
 }) => {
   const styles = useStyles();
   const [selectedCards, setSelectedCards] = useState<string[]>([]);
+  const MAX_DUAL_CARDS = 4; // Cap on flexible dual (±) cards per 10-card side deck
+
+  // Helper to count how many dual cards currently selected
+  const countSelectedByVariant = (variant: string) => {
+    return selectedCards.reduce((acc, id) => {
+      const card = sideCards.find(sc => sc.id === id);
+      return acc + (card && card.variant === variant ? 1 : 0);
+    }, 0);
+  };
+  const selectedDualCount = countSelectedByVariant('dual');
 
   const handleCardClick = (cardId: string) => {
+    const card = sideCards.find(sc => sc.id === cardId);
+    if (!card) return;
+
     if (selectedCards.includes(cardId)) {
+      // Deselect always allowed
       setSelectedCards(prev => prev.filter(id => id !== cardId));
-    } else if (selectedCards.length < 10) {
-      setSelectedCards(prev => [...prev, cardId]);
+      return;
     }
+
+    // Prevent adding if deck full
+    if (selectedCards.length >= 10) return;
+
+    // Enforce dual cap
+    if (card.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS) return;
+
+    setSelectedCards(prev => [...prev, cardId]);
   };
 
   const handleConfirmSelection = () => {
@@ -189,7 +210,14 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
   };
 
   const isCardSelected = (cardId: string) => selectedCards.includes(cardId);
-  const isCardDisabled = (cardId: string) => !isCardSelected(cardId) && selectedCards.length >= 10;
+  const isCardDisabled = (cardId: string) => {
+    if (isCardSelected(cardId)) return false;
+    const card = sideCards.find(sc => sc.id === cardId);
+    if (!card) return true;
+    if (selectedCards.length >= 10) return true;
+    if (card.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS) return true;
+    return false;
+  };
 
   // Group cards by type for better organization (following official rules)
   const groupedCards = {
@@ -281,7 +309,7 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
             {renderCardGroup(
               "Red/Blue Dual Cards", 
               groupedCards.dual, 
-              "Choose positive or negative when played (±1 to ±6) — 12 cards in your deck"
+              `Choose + or - when played (±1 to ±6). Cap: ${selectedDualCount}/${MAX_DUAL_CARDS} selectable.`
             )}
             {renderCardGroup(
               "Yellow Flip Cards", 

@@ -1,9 +1,18 @@
 import Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
 
+// Core gameplay & sync messages (host authoritative pattern)
 export type PeerMessage = 
+  // Legacy action (kept for backward compatibility – host used to broadcast this). Prefer CLIENT_ACTION/ACTION_APPLIED now.
   | { type: 'GAME_ACTION'; action: Record<string, unknown>; timestamp: number }
-  | { type: 'GAME_STATE_SYNC'; gameState: Record<string, unknown>; completionStatus?: [string, boolean][]; timestamp: number }
+  // Guest -> Host: request to perform an action
+  | { type: 'CLIENT_ACTION'; action: Record<string, unknown>; actionId: string; timestamp: number }
+  // Host -> All: authoritative result of an action just applied (includes version)
+  | { type: 'ACTION_APPLIED'; action: Record<string, unknown>; actionId: string; version: number; gameState?: Record<string, unknown>; timestamp: number }
+  // Host -> Guest (or response to STATE_REQUEST): full state snapshot with version
+  | { type: 'GAME_STATE_SYNC'; gameState: Record<string, unknown>; version: number; completionStatus?: [string, boolean][]; timestamp: number }
+  // Guest -> Host: ask for a full state (e.g., version gap or mismatch)
+  | { type: 'STATE_REQUEST'; sinceVersion?: number; reason?: string; timestamp: number }
   | { type: 'PLAYER_JOINED'; playerName: string; timestamp: number }
   | { type: 'PLAYER_LIST_SYNC'; players: string[]; timestamp: number }
   | { type: 'GAME_START'; timestamp: number }
@@ -17,7 +26,7 @@ export type PeerMessage =
 export interface PeerConnectionOptions {
   onMessage: (message: PeerMessage, peerId: string) => void;
   onPeerConnected: (peerId: string) => void;
-  onPeerDisconnected: (peerId: string) => void;
+  onPeerDisconnected: (peerId: string, playerName?: string) => void;
   onError: (error: Error) => void;
 }
 
@@ -26,8 +35,32 @@ export class PeerConnectionManager {
   private connections: Map<string, DataConnection> = new Map();
   private options: PeerConnectionOptions;
   private isHost: boolean = false;
-  private connectionStates: Map<string, 'connecting' | 'open' | 'closed'> = new Map();
+  private peerIdToPlayerName: Map<string, string> = new Map();
   private messageQueue: Map<string, PeerMessage[]> = new Map();
+  
+  /** Track basic connection metrics */
+  getConnectionHealth(): {
+    totalConnections: number;
+    openConnections: number;
+    connectionStates: Record<string, string>;
+    queuedMessages: Record<string, number>;
+  } {
+    const connectionStates: Record<string, string> = {};
+    const queuedMessages: Record<string, number> = {};
+    let openConnections = 0;
+    this.connections.forEach((conn, id) => {
+      const state = conn.open ? 'open' : 'closed';
+      if (conn.open) openConnections++;
+      connectionStates[id] = state;
+    });
+    this.messageQueue.forEach((queue, id) => { queuedMessages[id] = queue.length; });
+    return {
+      totalConnections: this.connections.size,
+      openConnections,
+      connectionStates,
+      queuedMessages
+    };
+  }
 
   constructor(options: PeerConnectionOptions) {
     this.options = options;
@@ -39,37 +72,31 @@ export class PeerConnectionManager {
    */
   async initializeAsHost(): Promise<string> {
     try {
-      console.log('🎮 Initializing as host...');
-      
-      // Create peer with auto-generated ID, using default PeerJS service like the working example
-      this.peer = new Peer({
-        debug: 2 // Enable debugging
-      });
-
-      this.isHost = true;
+      console.log('👑 Initializing as host...');
+      if (this.peer) this.disconnect();
 
       return new Promise((resolve, reject) => {
-        this.peer!.on('open', (id) => {
-          console.log(`🎮 Host peer opened with ID: ${id}`);
+        // ID is assigned by PeerJS server
+        this.peer = new Peer({ debug: 2 });
+        this.isHost = true;
+
+        const timeout = setTimeout(() => {
+          reject(new Error('Host initialization timed out.'));
+        }, 10000);
+
+        this.peer.on('open', (id) => {
+          clearTimeout(timeout);
+          console.log(`👑 Host peer is open with ID: ${id}`);
           this.setupPeerListeners();
           resolve(id);
         });
 
-        this.peer!.on('error', (error) => {
-          console.error('❌ Peer initialization error:', error);
+        this.peer.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error('❌ Host peer error:', error);
           this.options.onError(error);
           reject(error);
         });
-        
-        // Add timeout to detect connection issues
-        setTimeout(() => {
-          if (!this.peer?.open) {
-            const timeoutError = new Error('Timeout: Could not connect to PeerJS service');
-            console.error('❌ Peer connection timeout');
-            this.options.onError(timeoutError);
-            reject(timeoutError);
-          }
-        }, 10000); // 10 second timeout
       });
     } catch (error) {
       console.error('❌ Failed to initialize as host:', error);
@@ -78,87 +105,62 @@ export class PeerConnectionManager {
   }
 
   /**
-   * Initialize as guest - connects to an existing peer
-   * Uses the free PeerJS cloud service at 0.peerjs.com
+   * Initialize as guest - creates a new peer and connects to the host
    */
   async initializeAsGuest(roomId: string, playerName: string): Promise<void> {
     try {
-      const guestId = `guest-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
-      console.log(`🎮 Initializing guest with ID: ${guestId}, connecting to room: ${roomId}`);
-      
-      this.peer = new Peer({
-        debug: 2 // Enable debugging
-      });
-
-      this.isHost = false;
+      console.log(`👋 Initializing as guest to connect to room: ${roomId}`);
+      if (this.peer) this.disconnect();
 
       return new Promise((resolve, reject) => {
-        this.peer!.on('open', () => {
-          console.log(`🎮 Guest peer opened, connecting to room: ${roomId}`);
-          this.connectToHost(roomId, playerName);
-          resolve();
+        this.peer = new Peer({ debug: 2 });
+        this.isHost = false;
+
+        const timeout = setTimeout(() => {
+          reject(new Error(`Connection to room ${roomId} timed out.`));
+        }, 10000);
+
+        this.peer.on('open', (id) => {
+          console.log(`👋 Guest peer is open with ID: ${id}. Connecting to host: ${roomId}`);
+          
+          const connection = this.peer!.connect(roomId, {
+            reliable: true,
+            metadata: { playerName },
+          });
+
+          connection.on('open', () => {
+            clearTimeout(timeout);
+            console.log(`✅ Connection to host ${roomId} is open.`);
+            this.connections.set(roomId, connection);
+            this.setupConnectionListeners(connection);
+            
+            // Announce joining to the host
+            this.sendToHost({ type: 'PLAYER_JOINED', playerName, timestamp: Date.now() });
+            
+            this.options.onPeerConnected(roomId);
+            this.flushMessageQueue(roomId);
+            resolve();
+          });
+
+          connection.on('error', (err) => {
+            clearTimeout(timeout);
+            console.error(`❌ Connection to host ${roomId} failed:`, err);
+            this.options.onError(err);
+            reject(err);
+          });
         });
 
-        this.peer!.on('error', (error) => {
+        this.peer.on('error', (error) => {
+          clearTimeout(timeout);
           console.error('❌ Guest peer error:', error);
           this.options.onError(error);
           reject(error);
         });
-        
-        // Add timeout to detect connection issues
-        setTimeout(() => {
-          if (!this.peer?.open) {
-            const timeoutError = new Error('Timeout: Could not connect to PeerJS service');
-            console.error('❌ Guest peer connection timeout');
-            this.options.onError(timeoutError);
-            reject(timeoutError);
-          }
-        }, 10000); // 10 second timeout
       });
     } catch (error) {
       console.error('❌ Failed to initialize as guest:', error);
       throw error;
     }
-  }
-
-  /**
-   * Connect to the host peer (used by guests)
-   */
-  private connectToHost(hostId: string, playerName: string): void {
-    if (!this.peer) return;
-
-    console.log(`🔗 Guest attempting to connect to host: ${hostId}`);
-    
-    const connection = this.peer.connect(hostId, {
-      reliable: true,
-      metadata: { playerName }
-    });
-
-    // Set initial connection state
-    this.connectionStates.set(hostId, 'connecting');
-
-    connection.on('open', () => {
-      console.log(`✅ Connected to host: ${hostId}`);
-      this.connections.set(hostId, connection);
-      this.connectionStates.set(hostId, 'open');
-      this.setupConnectionListeners(connection, hostId);
-      
-      // Send player joined message
-      this.sendToHost({
-        type: 'PLAYER_JOINED',
-        playerName,
-        timestamp: Date.now()
-      });
-      
-      this.options.onPeerConnected(hostId);
-    });
-
-    connection.on('error', (error) => {
-      console.error(`❌ Connection error to host ${hostId}:`, error);
-      this.connectionStates.set(hostId, 'closed');
-      this.options.onError(error);
-    });
   }
 
   /**
@@ -170,23 +172,25 @@ export class PeerConnectionManager {
     // Only hosts listen for incoming connections
     if (this.isHost) {
       this.peer.on('connection', (connection) => {
-        console.log(`📞 Incoming connection from: ${connection.peer}`);
-        
-        // Set initial connection state
-        this.connectionStates.set(connection.peer, 'connecting');
-        
+        const peerId = connection.peer;
+        const playerName = connection.metadata.playerName;
+        console.log(`📞 Incoming connection from: ${peerId} (${playerName})`);
+        this.peerIdToPlayerName.set(peerId, playerName);
+
         connection.on('open', () => {
-          console.log(`✅ Connection established with: ${connection.peer}`);
-          this.connections.set(connection.peer, connection);
-          this.connectionStates.set(connection.peer, 'open');
-          this.setupConnectionListeners(connection, connection.peer);
-          this.options.onPeerConnected(connection.peer);
-        });
-        
-        connection.on('error', (error) => {
-          console.error(`❌ Incoming connection error from ${connection.peer}:`, error);
-          this.connectionStates.set(connection.peer, 'closed');
-          this.options.onError(error);
+          console.log(`✅ Connection established with: ${peerId}`);
+          this.connections.set(peerId, connection);
+          this.setupConnectionListeners(connection);
+          this.options.onPeerConnected(peerId);
+          this.flushMessageQueue(peerId);
+          // Defensive: immediately emit a synthetic PLAYER_JOINED in case the guest's own
+          // PLAYER_JOINED message is lost or arrives before listeners attach.
+          // Host handler is idempotent due to duplicate guard.
+          try {
+            this.options.onMessage({ type: 'PLAYER_JOINED', playerName, timestamp: Date.now() }, peerId);
+          } catch (e) {
+            console.warn('Failed to inject synthetic PLAYER_JOINED:', e);
+          }
         });
       });
     }
@@ -202,11 +206,10 @@ export class PeerConnectionManager {
   }
 
   /**
-   * Set up listeners for individual data connections
+   * Set up listeners for a data connection
    */
-  private setupConnectionListeners(connection: DataConnection, peerId: string): void {
-    // Connection should already be open when this is called
-    // Don't override the existing state
+  private setupConnectionListeners(connection: DataConnection): void {
+    const peerId = connection.peer;
     
     connection.on('data', (data) => {
       try {
@@ -220,19 +223,44 @@ export class PeerConnectionManager {
 
     connection.on('close', () => {
       console.log(`🔌 Connection closed with ${peerId}`);
-      this.connectionStates.set(peerId, 'closed');
       this.connections.delete(peerId);
-      this.options.onPeerDisconnected(peerId);
+      this.options.onPeerDisconnected(peerId, this.peerIdToPlayerName.get(peerId));
+      this.peerIdToPlayerName.delete(peerId);
     });
 
     connection.on('error', (error) => {
       console.error(`❌ Connection error with ${peerId}:`, error);
-      this.connectionStates.set(peerId, 'closed');
       this.connections.delete(peerId);
-      this.options.onPeerDisconnected(peerId);
+      this.options.onPeerDisconnected(peerId, this.peerIdToPlayerName.get(peerId));
+      this.peerIdToPlayerName.delete(peerId);
     });
+  }
+
+  /**
+   * Send message to a specific peer
+   */
+  sendToPeer(peerId: string, message: PeerMessage): void {
+    const connection = this.connections.get(peerId);
     
-    // Send any queued messages now that connection is ready
+    if (connection && connection.open) {
+      try {
+        connection.send(message);
+      } catch (error) {
+        console.error(`❌ Error sending message to ${peerId}:`, error);
+      }
+    } else {
+      console.log(`⏳ Queuing message for ${peerId} (connection not open):`, message.type);
+      if (!this.messageQueue.has(peerId)) {
+        this.messageQueue.set(peerId, []);
+      }
+      this.messageQueue.get(peerId)!.push(message);
+    }
+  }
+
+  /**
+   * Send all queued messages for a peer
+   */
+  private flushMessageQueue(peerId: string): void {
     const queuedMessages = this.messageQueue.get(peerId);
     if (queuedMessages && queuedMessages.length > 0) {
       console.log(`📤 Sending ${queuedMessages.length} queued messages to ${peerId}`);
@@ -254,16 +282,6 @@ export class PeerConnectionManager {
   }
 
   /**
-   * Queue message for later delivery
-   */
-  private queueMessage(peerId: string, message: PeerMessage): void {
-    if (!this.messageQueue.has(peerId)) {
-      this.messageQueue.set(peerId, []);
-    }
-    this.messageQueue.get(peerId)!.push(message);
-  }
-
-  /**
    * Send message to host (used by guests)
    */
   sendToHost(message: PeerMessage): void {
@@ -275,30 +293,6 @@ export class PeerConnectionManager {
       this.sendToPeer(hostPeerId, message);
     } else {
       console.warn('⚠️ No connection to host available');
-    }
-  }
-
-  /**
-   * Send message to specific peer
-   */
-  sendToPeer(peerId: string, message: PeerMessage): void {
-    const connection = this.connections.get(peerId);
-    const connectionState = this.connectionStates.get(peerId);
-    
-    if (connection && connectionState === 'open' && connection.open) {
-      try {
-        connection.send(message);
-        console.log(`📤 Message sent to ${peerId}:`, message.type);
-      } catch (error) {
-        console.error(`❌ Error sending message to ${peerId}:`, error);
-        // Queue the message for retry
-        this.queueMessage(peerId, message);
-      }
-    } else if (connectionState === 'connecting') {
-      console.log(`⏳ Queuing message for ${peerId} (connection not ready):`, message.type);
-      this.queueMessage(peerId, message);
-    } else {
-      console.warn(`⚠️ Cannot send message to ${peerId} - connection not available`);
     }
   }
 
@@ -341,46 +335,13 @@ export class PeerConnectionManager {
    * Disconnect from all peers and destroy the peer
    */
   disconnect(): void {
-    console.log('🔌 Disconnecting from all peers...');
-    
-    this.connections.forEach((connection) => {
-      connection.close();
-    });
-    
-    this.connections.clear();
-    
+    console.log('🔌 Disconnecting peer and all connections...');
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;
     }
+    this.connections.clear();
+    this.peerIdToPlayerName.clear();
+    this.messageQueue.clear();
   }
-
-  /**
-   * Get connection health information
-   */
-  getConnectionHealth(): { 
-    totalConnections: number; 
-    activeConnections: number; 
-    connectionStates: Record<string, string>;
-    queuedMessages: Record<string, number>;
-  } {
-    const connectionStates: Record<string, string> = {};
-    const queuedMessages: Record<string, number> = {};
-    
-    this.connectionStates.forEach((state, peerId) => {
-      connectionStates[peerId] = state;
-    });
-    
-    this.messageQueue.forEach((messages, peerId) => {
-      queuedMessages[peerId] = messages.length;
-    });
-    
-    return {
-      totalConnections: this.connections.size,
-      activeConnections: this.getConnectedPeers().length,
-      connectionStates,
-      queuedMessages
-    };
-  }
-
 }

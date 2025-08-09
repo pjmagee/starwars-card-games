@@ -69,7 +69,7 @@ export class PazaakAI {
    * AI decision making for main gameplay
    * Returns 'draw', 'stand', or side card to use
    */
-  makeDecision(player: Player, gameState?: { players: Player[] }): { action: 'draw' | 'stand' | 'useSideCard', cardId?: string, modifier?: 'positive' | 'negative' } {
+  makeDecision(player: Player, gameState?: { players: Player[], turnHasDrawn?: boolean, turnUsedSideCard?: boolean }): { action: 'draw' | 'stand' | 'useSideCard' | 'endTurn', cardId?: string, modifier?: 'positive' | 'negative' } {
     const currentScore = player.score;
     
     // Get difficulty settings early
@@ -91,7 +91,18 @@ export class PazaakAI {
       difficulty: { standThreshold, sideCardUsageRate, optimalPlayRate }
     });
     
-    // If we're already at 20, stand
+  // If we've already drawn this turn, never attempt a second draw; decide side card / stand
+  const alreadyDrewThisTurn = gameState?.turnHasDrawn;
+
+  // RULE ENFORCEMENT: A player must draw exactly one main deck card at the start of their turn
+  // before they are allowed to stand, end turn, or play a side card. Human UI enforces this;
+  // enforce for AI here to avoid illegal early stands or side plays that can cause a stuck turn.
+  if (!alreadyDrewThisTurn) {
+    // Only exception would be impossible states (e.g., busted before drawing) which shouldn't occur.
+    return { action: 'draw' };
+  }
+
+  // If we're already at 20, stand
     if (currentScore === 20) {
       console.log(`🤖 Standing at perfect 20`);
       return { action: 'stand' };
@@ -141,62 +152,37 @@ export class PazaakAI {
         // If no safe way to improve, stand (accept the tie)
         return { action: 'stand' };
       } else {
-        // We're losing - need to improve our score
-        const needed = opponentScore + 1 - currentScore;
-        
-        // If opponent is at 20, we can't win - just get as close as possible
-        if (opponentScore === 20) {
-          console.log(`🤖 Opponent has perfect 20, AI at ${currentScore} - trying to get close`);
-          // Try to get as close to 20 as possible without busting
-          const neededFor20 = 20 - currentScore;
-          if (neededFor20 > 0) {
-            // Try to find a side card that gets us exactly to 20
-            const perfectCard = this.findSpecificSideCard(player, neededFor20, 'positive');
-            if (perfectCard) {
-              console.log(`🤖 Found perfect +${neededFor20} card to reach 20`);
-              return { action: 'useSideCard', cardId: perfectCard.id };
-            }
-            // Or a dual card
-            const dualCard = player.dealtSideCards?.find(c => !c.isUsed && c.variant === 'dual' && c.value === neededFor20);
-            if (dualCard) {
-              console.log(`🤖 Found dual ±${neededFor20} card to reach 20`);
-              return { action: 'useSideCard', cardId: dualCard.id, modifier: 'positive' };
-            }
-          }
-          
-          // If we can't get to 20 exactly, be very conservative
-          // Only draw if we're very safe (score <= 15) or if we have a good chance
-          if (currentScore <= 14) {
-            console.log(`🤖 Score ${currentScore} is safe, drawing`);
-            return { action: 'draw' };
-          } else if (currentScore <= 17 && Math.random() < 0.3) {
-            console.log(`🤖 Score ${currentScore} - taking 30% risk to draw`);
-            return { action: 'draw' }; // 30% chance to risk it
-          } else {
-            console.log(`🤖 Score ${currentScore} too risky against perfect 20, standing`);
-            return { action: 'stand' }; // Too risky, accept the loss
-          }
-        }
-        
-        // Opponent is not at 20, try to beat them
-        if (needed <= 10) { // Can potentially get it with one main deck card
-          // Look for a side card that gets us exactly what we need
+        // We're losing and opponent is locked (standing). Drawing is the only path to a win or tie.
+        const needed = opponentScore + 1 - currentScore; // points needed to win outright
+        const neededForTie = opponentScore - currentScore; // points to tie
+
+        // First attempt immediate win via side card (positive or dual)
+        if (needed > 0 && needed <= 10) {
           const perfectCard = this.findSpecificSideCard(player, needed, 'positive');
-          if (perfectCard) {
-            return { action: 'useSideCard', cardId: perfectCard.id };
-          }
-          // Or a dual card
-          const dualCard = player.dealtSideCards?.find(c => !c.isUsed && c.variant === 'dual' && c.value === needed);
-          if (dualCard) {
-            return { action: 'useSideCard', cardId: dualCard.id, modifier: 'positive' };
-          }
+          if (perfectCard) return { action: 'useSideCard', cardId: perfectCard.id };
+          const dualPerfect = player.dealtSideCards?.find(c => !c.isUsed && c.variant === 'dual' && c.value === needed);
+          if (dualPerfect) return { action: 'useSideCard', cardId: dualPerfect.id, modifier: 'positive' };
         }
-        // If we can't get the exact score, try to draw if safe
-        if (currentScore <= 15) {
-          return { action: 'draw' };
-        } else {
-          return { action: 'stand' }; // Too risky to draw
+        // Attempt a tie (might void round) if win not possible via side card
+        if (neededForTie > 0 && neededForTie <= 10) {
+          const tieCard = this.findSpecificSideCard(player, neededForTie, 'positive');
+          if (tieCard) return { action: 'useSideCard', cardId: tieCard.id };
+          const dualTie = player.dealtSideCards?.find(c => !c.isUsed && c.variant === 'dual' && c.value === neededForTie);
+          if (dualTie) return { action: 'useSideCard', cardId: dualTie.id, modifier: 'positive' };
         }
+        // Special case: opponent perfect 20 – try to hit 20 exactly
+        if (opponentScore === 20) {
+          const neededFor20 = 20 - currentScore;
+            if (neededFor20 > 0 && neededFor20 <= 10) {
+              const toTwenty = this.findSpecificSideCard(player, neededFor20, 'positive');
+              if (toTwenty) return { action: 'useSideCard', cardId: toTwenty.id };
+              const dualTwenty = player.dealtSideCards?.find(c => !c.isUsed && c.variant === 'dual' && c.value === neededFor20);
+              if (dualTwenty) return { action: 'useSideCard', cardId: dualTwenty.id, modifier: 'positive' };
+            }
+        }
+        // No immediate card solution: always draw because standing is a guaranteed loss.
+        console.log(`🤖 Losing at ${currentScore} vs ${opponentScore} (standing). Drawing as only path to improve.`);
+        return { action: 'draw' };
       }
     }
     
@@ -249,8 +235,9 @@ export class PazaakAI {
       return Math.random() < standProbability ? { action: 'stand' } : { action: 'draw' };
     }
     
-    // Low risk zone (below 13) - always draw
-    return { action: 'draw' };
+  // Low risk zone (below 13) - we have already drawn (guard above). Consider ending turn to draw again next round.
+    // Previously the AI would prematurely stand at very low scores (e.g. 6-9). Instead, end the turn.
+    return { action: 'endTurn' };
   }
 
   /**

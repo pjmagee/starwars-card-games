@@ -45,13 +45,24 @@ export interface GameState {
   players: Player[];
   currentPlayerIndex: number;
   mainDeck: PazaakCard[]; // Shared 40-card deck (+1 to +10, four of each)
-  gamePhase: 'setup' | 'sideDeckSelection' | 'waitingToStart' | 'playing' | 'roundEnd' | 'gameEnd';
+  gamePhase: 'setup' | 'sideDeckSelection' | 'side-deck' | 'waitingToStart' | 'playing' | 'roundEnd' | 'gameEnd';
   winner?: Player;
   round: number;
   cardsDealtThisRound: number;
   roundResults: RoundResult[]; // Track history of round results
   aiLastAction?: string; // Track AI's last action for display
   aiActionHistory?: string[]; // Track AI's recent actions for display
+  actionHistory?: Array<{
+    ts: number;            // epoch ms
+    playerId: string;
+    playerName: string;
+    action: string;        // draw | side | stand | endTurn | bust | autoStand
+    detail?: string;       // optional extra info (card values etc.)
+    scoreAfter?: number;   // score after action
+  }>;
+  // Per-turn flags (support proper Pazaak flow: draw then optional side card then stand or end)
+  turnHasDrawn?: boolean;
+  turnUsedSideCard?: boolean;
 }
 
 export type GameAction = 
