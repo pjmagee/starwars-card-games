@@ -33,8 +33,9 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { NotificationProvider } from './components/NotificationSystem';
 import { MultiplayerProvider, useMultiplayer } from './contexts/MultiplayerContext';
 import { useNotifications } from './hooks/useNotifications';
+import PazaakRules from './games/pazaak/PazaakRules.tsx';
 
-type GameMode = 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'sabacc-spike' | 'sabacc-kessel';
+type GameMode = 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'pazaak-rules' | 'sabacc-spike' | 'sabacc-kessel';
 type SessionMode = 'offline' | 'host' | 'join';
 type ViewMode = 'normal' | 'sidebar'; // New: toggle between normal and sidebar nav
 
@@ -129,6 +130,7 @@ function App() {
   const [currentGame, setCurrentGame] = useState<GameMode>('menu');
   const [sessionMode, setSessionMode] = useState<SessionMode>('offline');
   const [viewMode, setViewMode] = useState<ViewMode>('normal');
+  // Rules view now navigated instead of modal
 
   const handleGameSelect = (game: GameMode) => {
     console.log('[App] Selecting game:', game);
@@ -144,15 +146,7 @@ function App() {
     setCurrentGame('menu');
   };
 
-  const handleShowRules = () => {
-    // Will implement dialog for rules
-    console.log('Show rules');
-  };
-
-  const handleShowAbout = () => {
-    // Will implement dialog for about
-    console.log('Show about');
-  };
+  // No modal handlers needed for rules
 
   const toggleViewMode = () => {
     setViewMode(viewMode === 'normal' ? 'sidebar' : 'normal');
@@ -205,6 +199,12 @@ function App() {
                     }}
                   >
                     Multiplayer
+                  </Button>
+                  <Button
+                    appearance="outline"
+                    onClick={() => handleGameSelect('pazaak-rules')}
+                  >
+                    Rules
                   </Button>
                 </div>
               </div>
@@ -266,6 +266,14 @@ function App() {
           return multiplayer.state.gamePhase === 'playing'
             ? <PazaakGameLayout initialMode="multiplayer" />
             : <MultiplayerSetup onGameStart={handleMultiplayerGameStart} />;
+        case 'pazaak-rules':
+          return (
+            <PazaakRules
+              onBack={() => handleBackToMenu()}
+              onPlayAI={() => handleGameSelect('pazaak')}
+              onPlayPvP={() => handleGameSelect('pazaak-multiplayer')}
+            />
+          );
         case 'sabacc-spike':
         case 'sabacc-kessel':
           return (
@@ -285,8 +293,7 @@ function App() {
           <AppNavigation
             currentGame={currentGame}
             onGameSelect={handleGameSelect}
-            onShowRules={handleShowRules}
-            onShowAbout={handleShowAbout}
+            
           />
           <div className={styles.contentWithSidebar}>
             {renderCurrentGame()}
@@ -350,8 +357,7 @@ function App() {
                   <MenuItem disabled>Sound Effects</MenuItem>
                   <MenuItem disabled>Background Music</MenuItem>
                   <Divider />
-                  <MenuItem onClick={handleShowRules}>Game Rules</MenuItem>
-                  <MenuItem onClick={handleShowAbout}>About</MenuItem>
+                  <MenuItem onClick={() => handleGameSelect('pazaak-rules')}>Game Rules</MenuItem>
                 </MenuList>
               </MenuPopover>
             </Menu>
@@ -369,6 +375,7 @@ function App() {
         <div className={currentGame === 'menu' ? styles.content : styles.gameContent}>
           {renderCurrentGame()}
         </div>
+  {/* Rules modal removed */}
       </div>
     );
   };

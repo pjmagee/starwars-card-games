@@ -79,6 +79,8 @@ const useStyles = makeStyles({
     border: `2px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusLarge,
     padding: tokens.spacingVerticalL,
+  // Ensure absolutely positioned badges (turn / status) anchor correctly even when not active
+  position: 'relative',
   },
   centerArea: {
     gridColumn: '2',
@@ -125,6 +127,7 @@ const useStyles = makeStyles({
     border: `2px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusLarge,
     padding: tokens.spacingVerticalL,
+  position: 'relative',
   },
   playingField: {
     display: 'flex',
@@ -159,8 +162,8 @@ const useStyles = makeStyles({
     gridTemplateRows: 'repeat(3, 1fr)',
     gap: tokens.spacingHorizontalXS,
     width: '100%',
-    maxWidth: '300px',
-    minHeight: '380px',
+  maxWidth: '300px', // 3 * (small card ~80px) + gaps/padding
+  minHeight: '360px',
     padding: tokens.spacingVerticalM,
     backgroundColor: tokens.colorSubtleBackground,
     borderRadius: tokens.borderRadiusMedium,
@@ -416,7 +419,8 @@ const useStyles = makeStyles({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '100px',
+  // Match PazaakCard small size height (110px) to avoid overflow clipping
+  minHeight: '110px',
     border: `1px dashed ${tokens.colorNeutralStroke3}`,
     borderRadius: tokens.borderRadiusMedium,
   },
@@ -948,7 +952,7 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
                     const card = localPlayer.hand[idx];
                     return (
                       <div key={idx} className={styles.gridSlot}>
-                        {card ? <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapVar(card)} size="normal" /> : <Text size={200} className={styles.slotNumber}>{idx + 1}</Text>}
+                        {card ? <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapVar(card)} size="small" /> : <Text size={200} className={styles.slotNumber}>{idx + 1}</Text>}
                       </div>
                     );
                   })}
@@ -1012,7 +1016,7 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
                       const card = opponentPlayer.hand[idx];
                       return (
                         <div key={idx} className={styles.gridSlot}>
-                          {card ? <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapVar(card)} size="normal" /> : <Text size={200} className={styles.slotNumber}>{idx + 1}</Text>}
+                          {card ? <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapVar(card)} size="small" /> : <Text size={200} className={styles.slotNumber}>{idx + 1}</Text>}
                         </div>
                       );
                     })}
@@ -1209,7 +1213,7 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
               return (
                 <div key={index} className={styles.gridSlot}>
                   {card ? (
-                    <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapCardVariantForDisplay(card)} size="normal" />
+                    <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapCardVariantForDisplay(card)} size="small" />
                   ) : (
                     <Text size={200} className={styles.slotNumber}>
                       {index + 1}
@@ -1392,7 +1396,7 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
                 return (
                   <div key={index} className={styles.gridSlot}>
                     {card ? (
-                      <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapCardVariantForDisplay(card)} size="normal" />
+                      <PazaakCardComponent value={card.value} isMainDeck={card.isMainDeck} variant={mapCardVariantForDisplay(card)} size="small" />
                     ) : (
                       <Text size={200} className={styles.slotNumber}>
                         {index + 1}

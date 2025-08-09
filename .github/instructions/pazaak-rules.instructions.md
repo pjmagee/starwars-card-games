@@ -5,14 +5,17 @@ applyTo: '**'
 Version: 1.1  |  Scope: Engine + UI reference  |  Last Updated: 2025-08-09
 
 ## 1. Objective
+
 Reach 20 or the highest total ≤20. First player to win 3 non-void rounds wins the match.
 
 ## 2. Components
+
 * Main Deck: 40 green cards (4× each 1–10)
 * Side Deck (per player): 10 chosen special cards (see types). At match start draw 4 at random: your fixed hand for entire match (single‑use each).
 * Board: Personal 3×3 (max 9 cards placed left→right, top→bottom).
 
 ## 3. Turn Sequence
+
 1. Mandatory: Draw exactly 1 main deck card (skip only if already busted/standing).
 2. Optional: Play 1 side card (max one per turn).
 3. Choose Action:
@@ -40,12 +43,15 @@ Round immediately ends when any occurs:
 * Both players at 20
 
 ## 6. Ties
+
 Equal scores ≤20 without an active tiebreaker effect → round void (no point; replay with remaining hands unchanged).
 
 ## 7. Win Condition (Match)
+
 First to 3 round wins (void rounds ignored).
 
 ## 8. Strategy Micro-Tips
+
 * Hold flexible negatives / duals to repair near-busts late.
 * Flip gains value when 2+ target ranks are present across boards.
 * Double earlier on high (6–7) only if you retain mitigation.
@@ -65,11 +71,13 @@ First to 3 round wins (void rounds ignored).
 | Variable | 2 | ±1/±2 |
 
 ## 10. Quick Examples
+
 * Exact 20: 7 + 6 + 5 = 18; play +2 → 20 (auto-stand).
 * Prevent Bust: At 19 draw 6 → 25; play -5 → 20.
 * Flip Swing: Opponent +2,+4 (now +6); you have -4. Play 2&4 Flip → their +2/+4 become -2/-4 (net -6), your -4 becomes +4 (10-point swing).
 
 ## 11. Machine Readable Snapshot
+
 ```jsonc
 {
 	"objective": "Reach <=20; first to 3 round wins",

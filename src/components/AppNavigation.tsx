@@ -11,17 +11,12 @@ import {
 import {
   Games24Regular,
   CardUi24Regular,
-  Bot24Regular,
   Group24Regular,
-  Settings24Regular,
-  Info24Regular,
 } from '@fluentui/react-icons';
 
 interface AppNavigationProps {
   currentGame: string;
-  onGameSelect: (game: 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'sabacc-spike' | 'sabacc-kessel') => void;
-  onShowRules: () => void;
-  onShowAbout: () => void;
+  onGameSelect: (game: 'menu' | 'pazaak' | 'pazaak-multiplayer' | 'pazaak-rules') => void;
 }
 
 const useStyles = makeStyles({
@@ -33,73 +28,36 @@ const useStyles = makeStyles({
 });
 
 const AppNavigation: React.FC<AppNavigationProps> = ({ 
-  onGameSelect, 
-  onShowRules,
-  onShowAbout 
+  onGameSelect,
 }) => {
   const styles = useStyles();
 
   return (
-    <Nav className={styles.nav} openCategories={['games', 'help']}>
-      <NavCategory value="games">
-        <NavCategoryItem icon={<Games24Regular />}>Games</NavCategoryItem>
-        
-        <NavItem 
-          icon={<CardUi24Regular />} 
-          value="pazaak"
-          onClick={() => onGameSelect('pazaak')}
-        >
-          Pazaak
-        </NavItem>
-        
+    <Nav className={styles.nav} openCategories={['pazaak', 'sabacc']}>
+      {/* Pazaak Section */}
+      <NavCategory value="pazaak">
+        <NavCategoryItem icon={<CardUi24Regular />}>Pazaak</NavCategoryItem>
         <NavSubItem value="pazaak-vs-ai" onClick={() => onGameSelect('pazaak')}>
-          vs AI
+          Vs AI
         </NavSubItem>
-        
-        <NavSubItem value="pazaak-practice" disabled>
-          Practice Mode
+        <NavSubItem value="pazaak-pvp" onClick={() => onGameSelect('pazaak-multiplayer')}>
+          PvP
         </NavSubItem>
-        
-        <NavSubItem value="pazaak-multiplayer" onClick={() => onGameSelect('pazaak-multiplayer')}>
-          Multiplayer
+  <NavSubItem value="pazaak-rules" onClick={() => onGameSelect('pazaak-rules')}>
+          Rules
         </NavSubItem>
-        
-        <NavItem 
-          icon={<Bot24Regular />} 
-          value="sabacc-spike"
-          disabled
-        >
-          Corellian Spike Sabacc
-        </NavItem>
-        
-        <NavItem 
-          icon={<Group24Regular />} 
-          value="sabacc-kessel"
-          disabled
-        >
-          Kessel Sabacc
+      </NavCategory>
+
+      {/* Sabacc Coming Soon Section */}
+      <NavCategory value="sabacc">
+        <NavCategoryItem icon={<Games24Regular />}>Sabacc (Coming Soon)</NavCategoryItem>
+        <NavItem icon={<Group24Regular />} value="sabacc-placeholder" disabled>
+          Variants In Development
         </NavItem>
       </NavCategory>
 
-      <NavCategory value="help">
-        <NavCategoryItem icon={<Info24Regular />}>Help & Info</NavCategoryItem>
-        
-        <NavItem 
-          icon={<Info24Regular />} 
-          value="rules"
-          onClick={onShowRules}
-        >
-          Game Rules
-        </NavItem>
-        
-        <NavItem 
-          icon={<Settings24Regular />} 
-          value="about"
-          onClick={onShowAbout}
-        >
-          About
-        </NavItem>
-      </NavCategory>
+      {/* Info (Optional) - removed per cleanup; keep a minimal About link only if needed later */}
+      {/* Removed Help & Info and About to declutter as requested */}
     </Nav>
   );
 };
