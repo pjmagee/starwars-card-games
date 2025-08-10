@@ -61,6 +61,7 @@ export interface MultiplayerContextValue {
   syncGameState: (gameState: GameState) => void;
   setPlayerReady: (ready: boolean) => void;
   startGame: () => void;
+  restartGame: () => void;
   
   // Utilities
   isPlayerReady: (playerId: string) => boolean;
@@ -328,6 +329,18 @@ export const MultiplayerProvider: React.FC<{ children: ReactNode }> = ({ childre
           }));
         }
         break;
+      case 'NEW_GAME': {
+        console.log('🆕 NEW_GAME received - resetting state to side deck selection');
+        setState(prev => ({
+          ...prev,
+          gameState: null,
+            gamePhase: 'side-deck',
+            playerSideDecks: new Map(),
+            playersReady: new Map(),
+            playerStageStatus: new Map(Array.from(prev.connectedPlayers).map(p => [p, { ready: false, sideDecksSelected: false, gameReady: false }]))
+        }));
+        break;
+      }
       
       default:
         console.warn('Unknown message type:', (message as PeerMessage).type);
@@ -499,6 +512,22 @@ export const MultiplayerProvider: React.FC<{ children: ReactNode }> = ({ childre
     handleMessage(message, peerId!); // Host processes it too
   }, [handleMessage]);
 
+  const restartGame = useCallback(() => {
+    const peerManager = peerManagerRef.current;
+    const { isHost, peerId, connectedPlayers } = stateRef.current;
+    if (!isHost || !peerManager) return;
+    console.log('🔄 Restarting multiplayer game (NEW_GAME)');
+    // Recreate authoritative game
+    try {
+      pazaakGameRef.current = new PazaakGame(connectedPlayers);
+    } catch (e) {
+      console.error('Failed to create new PazaakGame on restart:', e);
+    }
+    const msg: PeerMessage = { type: 'NEW_GAME', timestamp: Date.now() } as PeerMessage;
+    peerManager.sendToAll(msg);
+    handleMessage(msg, peerId!);
+  }, [handleMessage]);
+
   const selectSideDeck = useCallback((cardIds: string[]) => {
     const peerManager = peerManagerRef.current;
     const { isHost, playerName, peerId } = stateRef.current;
@@ -576,6 +605,7 @@ export const MultiplayerProvider: React.FC<{ children: ReactNode }> = ({ childre
     leaveRoom,
     setPlayerReady,
     startGame,
+  restartGame,
     selectSideDeck,
     sendGameAction,
     syncGameState,
@@ -596,7 +626,7 @@ export const MultiplayerProvider: React.FC<{ children: ReactNode }> = ({ childre
       return state.connectedPlayers.every(p => state.playerSideDecks.has(p));
     },
     getPlayerCount: () => state.connectedPlayers.length,
-  }), [state, createRoom, joinRoom, leaveRoom, setPlayerReady, startGame, selectSideDeck, sendGameAction, syncGameState]);
+  }), [state, createRoom, joinRoom, leaveRoom, setPlayerReady, startGame, restartGame, selectSideDeck, sendGameAction, syncGameState]);
 
   return (
     <MultiplayerContext.Provider value={value}>
@@ -605,6 +635,7 @@ export const MultiplayerProvider: React.FC<{ children: ReactNode }> = ({ childre
   );
 };
 
+// eslint-disable-next-line
 export const useMultiplayer = (): MultiplayerContextValue => {
   const context = useContext(MultiplayerContext);
   if (!context) {

@@ -229,8 +229,8 @@ const useStyles = makeStyles({
     overflow: 'auto',
   },
   hiddenCard: {
-    width: '60px',
-    height: '84px',
+  width: '80px',
+  height: '110px',
     backgroundColor: tokens.colorNeutralBackground6,
     border: `2px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
@@ -260,8 +260,8 @@ const useStyles = makeStyles({
     marginTop: tokens.spacingVerticalS,
   },
   opponentSideCard: {
-    width: '50px',
-    height: '70px',
+  width: '80px',
+  height: '110px',
     backgroundColor: tokens.colorNeutralBackground6,
     border: `2px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
@@ -383,6 +383,20 @@ const useStyles = makeStyles({
   playAgainButton: {
     marginTop: tokens.spacingVerticalM,
   },
+  newGameActions: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalM,
+    justifyContent: 'center',
+    marginTop: tokens.spacingVerticalM,
+  },
+  hotkeyLegend: {
+    marginBottom: tokens.spacingVerticalS,
+    backgroundColor: tokens.colorNeutralBackground2,
+    padding: tokens.spacingVerticalXS,
+    borderRadius: tokens.borderRadiusSmall,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    textAlign: 'center',
+  },
   selectionContainer: {
     padding: tokens.spacingVerticalL,
   },
@@ -481,6 +495,8 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
   );
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [endTurnDialogOpen, setEndTurnDialogOpen] = useState(false);
+  const [standDialogOpen, setStandDialogOpen] = useState(false);
+  const [pendingStandScore, setPendingStandScore] = useState<number | null>(null);
   const [pendingEndTurnScore, setPendingEndTurnScore] = useState<number | null>(null);
 
   // Sync multiplayer state with local game state
@@ -624,7 +640,9 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
       const currentPlayer = gameState.players[gameState.currentPlayerIndex];
       if (currentPlayer.id !== 'ai-player') {
         if (currentPlayer.score < 18) {
-          if (!window.confirm(`Stand at ${currentPlayer.score}? You cannot draw again this round.`)) return;
+          setPendingStandScore(currentPlayer.score);
+          setStandDialogOpen(true);
+          return;
         }
         const newState = game.stand(currentPlayer.id);
         setGameState(newState);
@@ -662,6 +680,16 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
     setPendingEndTurnScore(null);
   }, [game, gameState]);
 
+  const confirmStand = useCallback(() => {
+    if (!game || !gameState) return;
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (currentPlayer.id === 'ai-player') return;
+    const newState = game.stand(currentPlayer.id);
+    setGameState(newState);
+    setStandDialogOpen(false);
+    setPendingStandScore(null);
+  }, [game, gameState]);
+
   const handleNextRound = useCallback(() => {
     if (gameMode === 'multiplayer' && multiplayer.state.isConnected) {
       multiplayer.sendGameAction({ type: 'nextRound' });
@@ -673,6 +701,101 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
       setGameState(newState);
     }
   }, [game, gameState, gameMode, multiplayer]);
+
+  // Keyboard hotkeys: D draw, E end turn, S stand, 1-4 use side deck card (simple variants only)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Avoid when focusing inputs / dialogs
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.getAttribute('contenteditable') === 'true')) return;
+
+      const key = e.key.toLowerCase();
+
+      // Multiplayer context calculations
+      if (gameMode === 'multiplayer') {
+        const mState = multiplayer.state.gameState;
+        if (!mState || multiplayer.state.gamePhase !== 'playing') return;
+        const localIndex = multiplayer.state.connectedPlayers.indexOf(multiplayer.state.playerName);
+        if (localIndex < 0) return;
+        const localPlayer = mState.players[localIndex];
+        const isLocalTurn = mState.currentPlayerIndex === localIndex;
+        const canDraw = isLocalTurn && !localPlayer.isStanding && !mState.turnHasDrawn && localPlayer.score < 20 && localPlayer.hand.length < 9;
+        const canStand = isLocalTurn && !localPlayer.isStanding && mState.turnHasDrawn;
+        const canEndTurn = isLocalTurn && !localPlayer.isStanding && mState.turnHasDrawn;
+        const canUseSide = (cardIdx: number) => {
+          if (!isLocalTurn || localPlayer.isStanding || !mState.turnHasDrawn || mState.turnUsedSideCard) return false;
+            const card = localPlayer.dealtSideCards[cardIdx];
+            if (!card || card.isUsed) return false;
+            // Skip complex cards (dual / tiebreaker / variable) for hotkey to avoid needing modifier dialogs
+            if (card.variant === 'dual' || card.variant === 'tiebreaker' || card.variant === 'variable') return false;
+            return localPlayer.hand.length < 9;
+        };
+
+        switch (key) {
+          case 'd':
+            if (canDraw) { e.preventDefault(); multiplayer.sendGameAction({ type: 'drawCard' }); }
+            break;
+          case 'e':
+            if (canEndTurn) { e.preventDefault(); multiplayer.sendGameAction({ type: 'endTurn' }); }
+            break;
+          case 's':
+            if (canStand) { e.preventDefault(); multiplayer.sendGameAction({ type: 'stand' }); }
+            break;
+          case '1':
+          case '2':
+          case '3':
+          case '4': {
+            const idx = parseInt(key, 10) - 1;
+            if (canUseSide(idx)) {
+              e.preventDefault();
+              const card = localPlayer.dealtSideCards[idx];
+              multiplayer.sendGameAction({ type: 'useSideCard', cardId: card.id });
+            }
+            break; }
+        }
+        return; // done multiplayer
+      }
+
+      // Singleplayer (vs AI)
+      if (!game || !gameState || gameState.gamePhase !== 'playing') return;
+      const humanPlayer = gameState.players.find(p => p.id !== 'ai-player') || gameState.players[0];
+      const isPlayerTurn = gameState.players[gameState.currentPlayerIndex].id === humanPlayer.id;
+      const canDraw = isPlayerTurn && !humanPlayer.isStanding && !gameState.turnHasDrawn && humanPlayer.score < 20 && humanPlayer.hand.length < 9;
+      const canStand = isPlayerTurn && !humanPlayer.isStanding && gameState.turnHasDrawn;
+      const canEndTurn = isPlayerTurn && !humanPlayer.isStanding && gameState.turnHasDrawn;
+      const canUseSide = (cardIdx: number) => {
+        if (!isPlayerTurn || humanPlayer.isStanding || !gameState.turnHasDrawn || gameState.turnUsedSideCard) return false;
+        const card = humanPlayer.dealtSideCards[cardIdx];
+        if (!card || card.isUsed) return false;
+        if (card.variant === 'dual' || card.variant === 'tiebreaker' || card.variant === 'variable') return false;
+        return humanPlayer.hand.length < 9;
+      };
+      switch (key) {
+        case 'd':
+          if (canDraw) { e.preventDefault(); handleDrawCard(); }
+          break;
+        case 'e':
+          if (canEndTurn) { e.preventDefault(); handleEndTurn(); }
+          break;
+        case 's':
+          if (canStand) { e.preventDefault(); handleStand(); }
+          break;
+        case '1':
+        case '2':
+        case '3':
+        case '4': {
+          const idx = parseInt(key, 10) - 1;
+          if (canUseSide(idx)) {
+            e.preventDefault();
+            const card = humanPlayer.dealtSideCards[idx];
+            handleUseSideCard(card.id);
+          }
+          break; }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [game, gameState, gameMode, multiplayer, multiplayer.state.gameState, multiplayer.state.gamePhase, multiplayer.state.connectedPlayers, multiplayer.state.playerName, handleDrawCard, handleEndTurn, handleStand, handleUseSideCard]);
 
   // Show initial singleplayer menu; allow multiplayer path even before a local game instance exists
   if (gameMode === 'menu' || (gameMode !== 'multiplayer' && !game)) {
@@ -975,9 +1098,14 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
               </div>
               <div className={styles.centerArea}>
                 <div className={styles.primaryActions}>
-                  <Button appearance="primary" onClick={() => multiplayer.sendGameAction({ type: 'drawCard' })} disabled={!canDrawCard} title={canDrawCard ? 'Draw one main deck card' : 'You can only draw once per turn or after standing/busting'}>Draw</Button>
-                  {!localPlayer.isStanding && <Button appearance="secondary" onClick={() => multiplayer.sendGameAction({ type: 'endTurn' })} disabled={!canEndTurn} title={canEndTurn ? 'End your turn without standing' : 'Must draw before you can end turn'}>End Turn</Button>}
-                  <Button appearance="secondary" onClick={() => multiplayer.sendGameAction({ type: 'stand' })} disabled={!canStand} title={canStand ? 'Stand with your current total' : 'Draw first before you can stand'}>Stand</Button>
+                  {(multiplayer.state.gamePhase === 'playing') && (
+                    <div className={styles.hotkeyLegend}>
+                      <Text size={200} weight="semibold">Hotkeys: D=Draw • E=End Turn • S=Stand • 1-4=Side Card</Text>
+                    </div>
+                  )}
+                  <Button appearance="primary" onClick={() => multiplayer.sendGameAction({ type: 'drawCard' })} disabled={!canDrawCard} title={canDrawCard ? 'Draw one main deck card (D)' : 'You can only draw once per turn or after standing/busting'}>Draw (D)</Button>
+                  {!localPlayer.isStanding && <Button appearance="secondary" onClick={() => multiplayer.sendGameAction({ type: 'endTurn' })} disabled={!canEndTurn} title={canEndTurn ? 'End your turn without standing (E)' : 'Must draw before you can end turn'}>End Turn (E)</Button>}
+                  <Button appearance="secondary" onClick={() => multiplayer.sendGameAction({ type: 'stand' })} disabled={!canStand} title={canStand ? 'Stand with your current total (S)' : 'Draw first before you can stand'}>Stand (S)</Button>
                 </div>
                 <div className={styles.centerInfo}>
                   <Text weight="semibold" size={400}>Round {mState.round}</Text>
@@ -1044,7 +1172,12 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
                   <Card className={styles.gameOverCard}>
                     <Title3>🎉 Game Over! 🎉</Title3>
                     <Text size={500} weight="bold" className={styles.winnerText}>{mState.winner.name} Wins!</Text>
-                    <Button appearance="primary" size="large" onClick={() => multiplayer.leaveRoom()} className={styles.playAgainButton}>Exit</Button>
+                    <div className={styles.newGameActions}>
+                      {multiplayer.state.isHost && (
+                        <Button appearance="primary" size="large" onClick={() => multiplayer.restartGame()} className={styles.playAgainButton}>New Game</Button>
+                      )}
+                      <Button appearance="secondary" size="large" onClick={() => multiplayer.leaveRoom()} className={styles.playAgainButton}>Exit</Button>
+                    </div>
                   </Card>
                 </div>
               )}
@@ -1150,6 +1283,21 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
             <DialogActions>
               <Button appearance="secondary" onClick={() => { setEndTurnDialogOpen(false); setPendingEndTurnScore(null); }}>Cancel</Button>
               <Button appearance="primary" onClick={confirmEndTurn}>End Turn</Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+      {/* Stand Confirmation Dialog (scores < 18) */}
+      <Dialog open={standDialogOpen} onOpenChange={(_, data) => { if (!data.open) { setStandDialogOpen(false); setPendingStandScore(null); } }}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Stand at {pendingStandScore}</DialogTitle>
+            <DialogContent>
+              You won't draw again this round. Are you sure you want to lock in {pendingStandScore}? You can still End Turn instead and keep drawing next turn.
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => { setStandDialogOpen(false); setPendingStandScore(null); }}>Cancel</Button>
+              <Button appearance="primary" onClick={confirmStand}>Stand</Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>
@@ -1279,9 +1427,14 @@ const PazaakGameLayout: React.FC<PazaakGameLayoutProps> = ({ initialMode = 'sing
         <div className={styles.centerArea}>
           {/* Primary Game Controls */}
           <div className={styles.primaryActions}>
-            <Button appearance="primary" onClick={handleDrawCard} disabled={!canDrawCard} title={canDrawCard ? 'Draw one main deck card' : 'Already drew this turn / cannot draw now'}>Draw</Button>
-            {!humanPlayer.isStanding && <Button appearance="secondary" onClick={handleEndTurn} disabled={!canEndTurn} title={canEndTurn ? 'End your turn without standing' : 'Draw first to unlock'}>End Turn</Button>}
-            <Button appearance="secondary" onClick={handleStand} disabled={!canStand} title={canStand ? 'Stand with current score' : standDisabledReason}>Stand</Button>
+            {gameState.gamePhase === 'playing' && (
+              <div className={styles.hotkeyLegend}>
+                <Text size={200} weight="semibold">Hotkeys: D=Draw • E=End Turn • S=Stand • 1-4=Side Card</Text>
+              </div>
+            )}
+            <Button appearance="primary" onClick={handleDrawCard} disabled={!canDrawCard} title={canDrawCard ? 'Draw one main deck card (D)' : 'Already drew this turn / cannot draw now'}>Draw (D)</Button>
+            {!humanPlayer.isStanding && <Button appearance="secondary" onClick={handleEndTurn} disabled={!canEndTurn} title={canEndTurn ? 'End your turn without standing (E)' : 'Draw first to unlock'}>End Turn (E)</Button>}
+            <Button appearance="secondary" onClick={handleStand} disabled={!canStand} title={canStand ? 'Stand with current score (S)' : standDisabledReason}>Stand (S)</Button>
           </div>
 
           {/* Round Info */}

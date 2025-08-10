@@ -59,6 +59,10 @@ const PazaakRules: React.FC<PazaakRulesProps> = ({ onBack, onPlayAI, onPlayPvP }
         <Text size={200}>When both players have stood, or one busts, the round resolves.</Text>
       </div>
       <div className={styles.section}>
+        <Text weight="semibold">Side Deck Selection & Dealing</Text>
+        <Text size={200}>You first select 10 side cards. At game start ONLY 4 of those 10 are randomly dealt to you; the remaining 6 are discarded for the entire match in this implementation (they are not drawn later between rounds). Manage flexibility carefully—dual cards are capped to reduce volatility.</Text>
+      </div>
+      <div className={styles.section}>
         <Text weight="semibold">Side Card Types</Text>
         <ul className={styles.list}>
           <li><Text size={200}>Plus (+X): Add X to your total.</Text></li>

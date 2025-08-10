@@ -32,8 +32,8 @@ describe('End Turn vs standing opponent should not prematurely end round', () =>
     ];
     p2.score = 19; p2.isStanding = true;
 
-  state.currentPlayerIndex = 0; // P1 turn
-  state.turnHasDrawn = true; // Simulate that they have drawn already this turn
+  // Force internal state turn (cannot rely on mutating shallow copy from getState)
+  game._forceTurn(p1.id, true);
 
     // Player chooses to end turn instead of standing
     game.endTurn();

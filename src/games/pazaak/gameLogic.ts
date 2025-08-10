@@ -30,7 +30,7 @@ export class PazaakGame {
         score: 0,
         sets: 0,
         isStanding: false,
-        isDealer: index === 0
+  isStartingPlayer: index === 0
       });
     });
 
@@ -46,19 +46,29 @@ export class PazaakGame {
         score: 0,
         sets: 0,
         isStanding: false,
-        isDealer: false
+  isStartingPlayer: false
       });
+    }
+
+    // Fair start: coin flip between first two players (or player vs AI) to determine initial starter
+    let startingIndex = 0;
+    if (players.length >= 2) {
+      startingIndex = Math.random() < 0.5 ? 0 : 1;
+      // Mark dealer flag: In Pazaak there's no formal dealer advantage; we track for rotation only
+  players.forEach((p, i) => { p.isStartingPlayer = (i === startingIndex); });
     }
 
     return {
       players,
-      currentPlayerIndex: 0,
+      currentPlayerIndex: startingIndex,
       mainDeck: this.createMainDeck(),
       gamePhase: 'sideDeckSelection',
       round: 1,
       cardsDealtThisRound: 0,
       roundResults: [],
-      actionHistory: []
+      actionHistory: [],
+      startingPlayerId: players[startingIndex]?.id,
+      nextRoundStarterId: undefined,
     };
   }
 
@@ -231,7 +241,7 @@ export class PazaakGame {
     const allSelected = this.state.players.every(p => p.selectedSideCards.length === 10);
     if (allSelected) {
       // Deal 4 random cards from each player's selected 10-card side deck
-      this.state.players.forEach(player => {
+  this.state.players.forEach(player => {
         const shuffledSideDeck = this.shuffleArray([...player.selectedSideCards]);
         player.dealtSideCards = shuffledSideDeck.slice(0, 4);
         // Initialize hand as empty - cards will be added when drawn from main deck or side cards are used
@@ -251,6 +261,11 @@ export class PazaakGame {
           this.state.cardsDealtThisRound++;
         }
       });
+      // Ensure starting player index points to startingPlayerId (in case of ordering differences later)
+      if (this.state.startingPlayerId) {
+        const idx = this.state.players.findIndex(p => p.id === this.state.startingPlayerId);
+        if (idx >= 0) this.state.currentPlayerIndex = idx;
+      }
     // After initial automatic card, first active player still must draw this turn
     this.state.turnHasDrawn = false;
     this.state.turnUsedSideCard = false;
@@ -813,6 +828,26 @@ export class PazaakGame {
     // Add round result to history
     this.state.roundResults.push(roundResult);
 
+    // Determine next round starting player per authentic rule:
+    // Winner of a completed (non-void) round starts the next round. If the round is void (tie without single tiebreaker or all bust),
+    // initiative passes to the other player (2-player assumption). If no winner yet and not void (shouldn't occur), keep current.
+    if (!this.state.gamePhase || this.state.gamePhase !== 'gameEnd') {
+      if (!roundResult.isVoid && roundResult.winnerId) {
+        this.state.startingPlayerId = roundResult.winnerId;
+      } else if (roundResult.isVoid) {
+        // Swap starter for void round (only meaningful in 2-player scenario). For >2 players, simple rotation fallback.
+        if (this.state.players.length === 2 && this.state.startingPlayerId) {
+          const other = this.state.players.find(p => p.id !== this.state.startingPlayerId);
+          if (other) this.state.startingPlayerId = other.id;
+        } else {
+          // Fallback: advance to next player index cyclically
+          const idx = this.state.players.findIndex(p => p.id === this.state.startingPlayerId);
+          const nextIdx = idx >= 0 ? (idx + 1) % this.state.players.length : 0;
+            this.state.startingPlayerId = this.state.players[nextIdx]?.id;
+        }
+      }
+    }
+
     // Check for game winner (first to 3 rounds per official rules)
     const gameWinner = this.state.players.find(p => p.sets >= 3);
     
@@ -859,8 +894,14 @@ export class PazaakGame {
     if (!isVoidRound) {
       this.state.round++;
     }
-    
-    this.state.currentPlayerIndex = 0;
+
+    // Use precomputed startingPlayerId from endRound (winner or swapped on tie/void)
+    if (!this.state.startingPlayerId) {
+      this.state.startingPlayerId = this.state.players[0]?.id;
+    }
+    const starterIdx = this.state.players.findIndex(p => p.id === this.state.startingPlayerId);
+    this.state.currentPlayerIndex = starterIdx >= 0 ? starterIdx : 0;
+    this.state.players.forEach(p => { p.isStartingPlayer = (p.id === this.state.startingPlayerId); });
     this.state.gamePhase = 'playing';
     this.state.cardsDealtThisRound = 0;
     this.state.aiLastAction = undefined; // Clear AI action for new round
@@ -879,6 +920,11 @@ export class PazaakGame {
         this.state.cardsDealtThisRound++;
       }
     });
+    // realign currentPlayerIndex to startingPlayerId
+    if (this.state.startingPlayerId) {
+      const idx = this.state.players.findIndex(p => p.id === this.state.startingPlayerId);
+      if (idx >= 0) this.state.currentPlayerIndex = idx;
+    }
   // First player still needs to draw this turn
   this.state.turnHasDrawn = false;
   this.state.turnUsedSideCard = false;
@@ -892,5 +938,16 @@ export class PazaakGame {
 
   public getCurrentPlayer(): Player | undefined {
     return this.state.players[this.state.currentPlayerIndex];
+  }
+
+  /**
+   * TEST-ONLY helper (no effect in production builds): force the active player index and optionally the draw flag.
+   * Rationale: getState() returns a shallow copy; mutating its top-level fields in tests does not affect internal state.
+   * This avoids flaky tests that previously tried to set currentPlayerIndex / turnHasDrawn directly on the snapshot.
+   */
+  public _forceTurn(playerId: string, turnHasDrawn?: boolean): void {
+    const idx = this.state.players.findIndex(p => p.id === playerId);
+    if (idx >= 0) this.state.currentPlayerIndex = idx;
+    if (typeof turnHasDrawn === 'boolean') this.state.turnHasDrawn = turnHasDrawn;
   }
 }

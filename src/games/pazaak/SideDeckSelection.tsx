@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Card,
   CardHeader,
@@ -8,9 +8,7 @@ import {
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import {
-  CheckmarkCircle24Filled,
-} from '@fluentui/react-icons';
+// Icon imports no longer needed after grouped selection redesign
 import PazaakCardComponent from '../../components/PazaakCard';
 import type { SideCard } from './types';
 import { soundEffects } from '../../utils/soundEffects';
@@ -142,21 +140,61 @@ const useStyles = makeStyles({
     marginBottom: tokens.spacingVerticalS,
   },
   cardGroupTitle: {
-    marginBottom: tokens.spacingVerticalXS,
-    display: 'block',
+  marginBottom: tokens.spacingVerticalXS,
+  display: 'block',
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: '1.25',
   },
   cardGroupDescription: {
-    marginBottom: tokens.spacingVerticalXS,
-    display: 'block',
-    color: tokens.colorNeutralForeground3,
+  marginBottom: tokens.spacingVerticalXS,
+  display: 'block',
+  color: tokens.colorNeutralForeground3,
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: '1.2',
+  fontSize: tokens.fontSizeBase200,
   },
   cardGroupGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(85px, max-content))', // Increased from 70px
+    gridTemplateColumns: 'repeat(auto-fit, minmax(95px, 1fr))',
     gap: tokens.spacingHorizontalS,
     marginBottom: tokens.spacingVerticalS,
     width: '100%',
     justifyContent: 'start',
+  },
+  constraintsBar: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalL,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    padding: `${tokens.spacingVerticalXS} 0`,
+  },
+  capBadge: {
+    fontWeight: 600,
+  },
+  groupCardWrapper: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: tokens.spacingVerticalXS,
+    padding: tokens.spacingVerticalXS,
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+  },
+  groupControls: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalXS,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  counterBadge: {
+    position: 'absolute',
+    top: '4px',
+    right: '4px',
+    pointerEvents: 'none',
   },
 });
 
@@ -167,7 +205,10 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
 }) => {
   const styles = useStyles();
   const [selectedCards, setSelectedCards] = useState<string[]>([]);
-  const MAX_DUAL_CARDS = 4; // Cap on flexible dual (±) cards per 10-card side deck
+  // Balance tweak: Dual (±) cards are strong because they compress decision space.
+  // Limiting to 2 aligns closer to traditional Pazaak community rules (often 2 copies per specific card)
+  // and curbs variance spikes from over-flexible decks.
+  const MAX_DUAL_CARDS = 2; // Reduced cap for balance
 
   // Helper to count how many dual cards currently selected
   const countSelectedByVariant = (variant: string) => {
@@ -178,24 +219,6 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
   };
   const selectedDualCount = countSelectedByVariant('dual');
 
-  const handleCardClick = (cardId: string) => {
-    const card = sideCards.find(sc => sc.id === cardId);
-    if (!card) return;
-
-    if (selectedCards.includes(cardId)) {
-      // Deselect always allowed
-      setSelectedCards(prev => prev.filter(id => id !== cardId));
-      return;
-    }
-
-    // Prevent adding if deck full
-    if (selectedCards.length >= 10) return;
-
-    // Enforce dual cap
-    if (card.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS) return;
-
-    setSelectedCards(prev => [...prev, cardId]);
-  };
 
   const handleConfirmSelection = () => {
     if (selectedCards.length === 10) {
@@ -209,68 +232,84 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
     return sideCard.variant;
   };
 
-  const isCardSelected = (cardId: string) => selectedCards.includes(cardId);
-  const isCardDisabled = (cardId: string) => {
-    if (isCardSelected(cardId)) return false;
-    const card = sideCards.find(sc => sc.id === cardId);
-    if (!card) return true;
-    if (selectedCards.length >= 10) return true;
-    if (card.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS) return true;
-    return false;
+
+  // Pre-group duplicates: key by variant+value (and variant subtype)
+  interface CardGroup { key: string; sample: SideCard; cards: SideCard[]; selectedCount: number; remaining: number; }
+  const allGroups = useMemo(() => {
+    const map = new Map<string, { sample: SideCard; cards: SideCard[] }>();
+    sideCards.forEach(c => {
+      const key = `${c.variant}:${c.value}${c.variant.startsWith('flip') ? ':' + (c.flipTargets?.join('-') || '') : ''}`;
+      if (!map.has(key)) map.set(key, { sample: c, cards: [] });
+      map.get(key)!.cards.push(c);
+    });
+    const groups: CardGroup[] = [];
+    map.forEach((v, k) => {
+      const selectedCount = v.cards.filter(c => selectedCards.includes(c.id)).length;
+      groups.push({ key: k, sample: v.sample, cards: v.cards, selectedCount, remaining: v.cards.length - selectedCount });
+    });
+    return groups;
+  }, [sideCards, selectedCards]);
+
+  const groupedCards = useMemo(() => ({
+    positive: allGroups.filter(g => g.sample.variant === 'positive'),
+    negative: allGroups.filter(g => g.sample.variant === 'negative'),
+    dual: allGroups.filter(g => g.sample.variant === 'dual'),
+    flip: allGroups.filter(g => ['flip_2_4', 'flip_3_6'].includes(g.sample.variant)),
+    special: allGroups.filter(g => ['double', 'tiebreaker', 'variable'].includes(g.sample.variant))
+  }), [allGroups]);
+
+  const dualCapReached = selectedDualCount >= MAX_DUAL_CARDS;
+
+  const addFromGroup = (group: CardGroup) => {
+    if (selectedCards.length >= 10) return;
+    if (group.sample.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS) return;
+    const availableCard = group.cards.find(c => !selectedCards.includes(c.id));
+    if (availableCard) setSelectedCards(prev => [...prev, availableCard.id]);
+  };
+  const removeFromGroup = (group: CardGroup) => {
+    const selectedInGroup = group.cards.filter(c => selectedCards.includes(c.id));
+    if (selectedInGroup.length === 0) return;
+    // remove last selected of this group for intuitive undo
+    const removeId = selectedInGroup[selectedInGroup.length - 1].id;
+    setSelectedCards(prev => prev.filter(id => id !== removeId));
   };
 
-  // Group cards by type for better organization (following official rules)
-  const groupedCards = {
-    positive: sideCards.filter(card => card.variant === 'positive'),
-    negative: sideCards.filter(card => card.variant === 'negative'),
-    dual: sideCards.filter(card => card.variant === 'dual'),
-    flip: sideCards.filter(card => ['flip_2_4', 'flip_3_6'].includes(card.variant)),
-    special: sideCards.filter(card => ['double', 'tiebreaker', 'variable'].includes(card.variant))
-  };
-
-  const renderCardGroup = (title: string, cards: SideCard[], description: string) => {
-    if (cards.length === 0) return null;
-    
+  const renderCardGroup = (title: string, groups: CardGroup[], description: string) => {
+    if (groups.length === 0) return null;
+    const totalCards = groups.reduce((acc, g) => acc + g.cards.length, 0);
     return (
       <div className={styles.cardGroupContainer}>
         <Text size={400} weight="semibold" className={styles.cardGroupTitle}>
-          {title} ({cards.length} cards)
+          {title} ({totalCards} cards)
         </Text>
-        <Text size={200} className={styles.cardGroupDescription}>
-          {description}
-        </Text>
+        <Text size={200} className={styles.cardGroupDescription}>{description}</Text>
         <div className={styles.cardGroupGrid}>
-          {cards.map(sideCard => (
-            <div 
-              key={sideCard.id} 
-              className={
-                isCardSelected(sideCard.id) ? styles.cardWrapperSelected : 
-                isCardDisabled(sideCard.id) ? styles.cardWrapperDisabled : 
-                styles.cardWrapper
-              }
-              onClick={() => !isCardDisabled(sideCard.id) && handleCardClick(sideCard.id)}
-            >
-              <PazaakCardComponent
-                value={sideCard.value}
-                isMainDeck={false}
-                variant={getCardVariant(sideCard)}
-                disabled={isCardDisabled(sideCard.id)}
-                size="small" // Increased from "tiny" to "small"
-              />
-              {isCardSelected(sideCard.id) && (
-                <div className={styles.selectionBadge}>
-                  <Badge 
-                    appearance="filled" 
-                    color="success"
-                    icon={<CheckmarkCircle24Filled />}
+          {groups.map(group => {
+            const g = group; // alias
+            const full = g.selectedCount === g.cards.length;
+            const addDisabled = full || selectedCards.length >= 10 || (g.sample.variant === 'dual' && selectedDualCount >= MAX_DUAL_CARDS);
+            const removeDisabled = g.selectedCount === 0;
+            return (
+              <div key={g.key} className={styles.groupCardWrapper}>
+                <div>
+                  <PazaakCardComponent
+                    value={g.sample.value}
+                    isMainDeck={false}
+                    variant={getCardVariant(g.sample)}
                     size="small"
-                  >
-                    ✓
+                    disabled={addDisabled}
+                  />
+                  <Badge appearance={g.selectedCount>0? 'filled':'outline'} color={full? 'success':'brand'} className={styles.counterBadge} size="small">
+                    {g.selectedCount}/{g.cards.length}
                   </Badge>
                 </div>
-              )}
-            </div>
-          ))}
+                <div className={styles.groupControls}>
+                  <Button size="small" appearance="secondary" onClick={() => removeFromGroup(g)} disabled={removeDisabled}>-</Button>
+                  <Button size="small" appearance="primary" onClick={() => addFromGroup(g)} disabled={addDisabled}>+</Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -285,41 +324,49 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
             header={
               <div>
                 <Text size={500} weight="semibold">{playerName} - Select 10 Side Cards</Text>
-                <Badge 
-                  appearance="filled" 
-                  color={selectedCards.length === 10 ? 'success' : 'brand'}
-                >
-                  Selected: {selectedCards.length}/10
-                </Badge>
+                <div className={styles.constraintsBar}>
+                  <Badge 
+                    appearance="filled" 
+                    color={selectedCards.length === 10 ? 'success' : 'brand'}
+                  >
+                    Selected: {selectedCards.length}/10
+                  </Badge>
+                  <Badge appearance="filled" color={dualCapReached ? 'danger' : 'brand'} className={styles.capBadge}>
+                    Dual (±) Cards: {selectedDualCount}/{MAX_DUAL_CARDS} {dualCapReached ? '(Cap Reached)' : ''}
+                  </Badge>
+                  <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                    Dual cards are flexible (+ or -). Cap limits deck volatility.
+                  </Text>
+                </div>
               </div>
             }
           />
           
           <div className={styles.cardGrid}>
             {renderCardGroup(
-              "Blue Plus Cards", 
-              groupedCards.positive, 
-              "Add points to your total (+1 to +6) — 12 cards in your deck"
+              "Blue Plus Cards",
+              groupedCards.positive,
+              "Add points to your total (+1 to +6). Select duplicates via + button."
             )}
             {renderCardGroup(
-              "Red Minus Cards", 
-              groupedCards.negative, 
-              "Subtract points from your total (-1 to -6) — 12 cards in your deck"
+              "Red Minus Cards",
+              groupedCards.negative,
+              "Subtract points (-1 to -6). Select duplicates via + button."
             )}
             {renderCardGroup(
-              "Red/Blue Dual Cards", 
-              groupedCards.dual, 
-              `Choose + or - when played (±1 to ±6). Cap: ${selectedDualCount}/${MAX_DUAL_CARDS} selectable.`
+              "Red/Blue Dual Cards",
+              groupedCards.dual,
+              `Choose + or - when played (±1 to ±6). Cap: ${selectedDualCount}/${MAX_DUAL_CARDS}.`
             )}
             {renderCardGroup(
-              "Yellow Flip Cards", 
-              groupedCards.flip, 
-              "Turn target numbers positive/negative (2&4 or 3&6) — 4 cards in your deck"
+              "Yellow Flip Cards",
+              groupedCards.flip,
+              "Flip 2&4 or 3&6 values. Only one per card instance."
             )}
             {renderCardGroup(
-              "Yellow Special Cards", 
-              groupedCards.special, 
-              "Double, Tiebreaker, and Variable effects — 3 cards in your deck"
+              "Yellow Special Cards",
+              groupedCards.special,
+              "Double last card, Tiebreaker wins ties, Variable ± values."
             )}
           </div>
         </Card>
@@ -365,6 +412,9 @@ const SideDeckSelection: React.FC<SideDeckSelectionProps> = ({
 
         {/* Confirm Selection */}
         <div className={styles.confirmSection}>
+          <Text size={200} style={{ textAlign: 'center', color: tokens.colorNeutralForeground3 }}>
+            After you confirm, 4 random cards from your 10-card side deck are dealt to your hand. The other 6 are not used again in this match (current implementation). You will NOT start the game holding all 10.
+          </Text>
           <Text className={styles.progressText}>
             {selectedCards.length === 10 
               ? "Ready to start the game!" 

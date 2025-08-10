@@ -21,7 +21,9 @@ export type PeerMessage =
   | { type: 'SIDE_DECK_COMPLETE'; playerId: string; timestamp: number }
   | { type: 'PHASE_TRANSITION'; newPhase: string; timestamp: number }
   | { type: 'HEARTBEAT'; gamePhase: string; completionStatus: [string, boolean][]; timestamp: number }
-  | { type: 'CONNECTION_TEST'; timestamp: number };
+  | { type: 'CONNECTION_TEST'; timestamp: number }
+  // Host -> All: start a completely new game within the same room (full reset to side deck selection)
+  | { type: 'NEW_GAME'; timestamp: number };
 
 export interface PeerConnectionOptions {
   onMessage: (message: PeerMessage, peerId: string) => void;

@@ -29,7 +29,7 @@ export interface Player {
   score: number;
   sets: number; // Pazaak is best of 3 sets
   isStanding: boolean;
-  isDealer?: boolean;
+  isStartingPlayer?: boolean; // True only for the player who begins the current round
   tiebreaker?: boolean; // For tiebreaker card effects
 }
 
@@ -50,6 +50,8 @@ export interface GameState {
   round: number;
   cardsDealtThisRound: number;
   roundResults: RoundResult[]; // Track history of round results
+  startingPlayerId?: string; // Who started the current round (after coin flip / rotation)
+  nextRoundStarterId?: string; // Precomputed who should start next round (dealer rotation)
   aiLastAction?: string; // Track AI's last action for display
   aiActionHistory?: string[]; // Track AI's recent actions for display
   actionHistory?: Array<{
